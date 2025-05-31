@@ -1,0 +1,42 @@
+# Default models to use
+default_models:
+  - gpt-4
+  - claude-3-opus
+  - gemini-pro
+
+# Default resolver model for synthesis
+default_resolver: gpt-4
+
+# Maximum number of synthesis iterations
+max_iterations: 3
+
+# Minimum confidence threshold for synthesis
+confidence_threshold: 0.8
+
+# Timeout in seconds for model execution
+timeout: 30
+
+# Logging configuration
+log_dir: logs
+log_level: INFO
+
+# Model-specific settings
+model_settings:
+  gpt-4:
+    provider: openai
+    context_length: 8192
+    cost_per_1k_tokens:
+      input: 0.03
+      output: 0.06
+  claude-3-opus:
+    provider: anthropic
+    context_length: 200000
+    cost_per_1k_tokens:
+      input: 0.015
+      output: 0.075
+  gemini-pro:
+    provider: google
+    context_length: 32768
+    cost_per_1k_tokens:
+      input: 0.00025
+      output: 0.0005 

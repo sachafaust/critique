@@ -1,0 +1,13 @@
+include LICENSE
+include README.md
+include pyproject.toml
+include setup.py
+include setup.cfg
+include pytest.ini
+include .coveragerc
+include .pre-commit-config.yaml
+include requirements-dev.txt
+include config.yaml
+include env.example
+recursive-include llm_critique *.py
+recursive-include tests *.py 
