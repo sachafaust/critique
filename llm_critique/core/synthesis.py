@@ -77,7 +77,7 @@ class ResponseSynthesizer:
         
         # Calculate total duration and cost
         total_duration_ms = (time.time() - start_time) * 1000
-        total_cost = 0.0  # TODO: Implement cost calculation for new workflow
+        total_cost = self._calculate_actual_cost(prompt, creator_model, critic_names, workflow_results)
         
         # Extract final iteration data
         final_iteration = workflow_results["iterations"][-1] if workflow_results["iterations"] else {}
@@ -192,7 +192,7 @@ class ResponseSynthesizer:
             console.print(creator_panel)
             
             # Critics feedback section
-            console.print(f"\n🔍 CRITICS FEEDBACK", style="bold yellow")
+            console.print(f"\n🔍 CRITICS FEEDBACK (Iteration {i})", style="bold yellow")
             
             for j, critic in enumerate(iteration["critics"], 1):
                 critic_data = critic["critic_response"]
@@ -205,7 +205,7 @@ class ResponseSynthesizer:
                 continue_color = "green" if continue_flag else "red"
                 continue_text = "🔄 Continue" if continue_flag else "✅ Stop"
                 
-                console.print(f"\n  🤖 {model_name}", style="bold cyan")
+                console.print(f"\n  🤖 {model_name} (Iteration {i})", style="bold cyan")
                 console.print(f"     📊 Quality Score: {quality_score*100:.1f}%", style=score_color)
                 console.print(f"     💪 Strengths:", style="dim cyan")
                 for strength in critic_data.get("strengths", []):
@@ -222,7 +222,7 @@ class ResponseSynthesizer:
                 if specific_feedback and len(specific_feedback) > 20:
                     feedback_panel = Panel(
                         specific_feedback,
-                        title=f"💬 Detailed Feedback from {model_name}",
+                        title=f"💬 Detailed Feedback from {model_name} (Iteration {i})",
                         title_align="left",
                         border_style="cyan",
                         padding=(0, 1)
@@ -241,6 +241,22 @@ class ResponseSynthesizer:
         )
         console.print(final_panel)
         
+        # Iteration summary
+        requested_iterations = results["input"]["max_iterations"]
+        used_iterations = results["results"]["total_iterations"]
+        convergence_achieved = results["results"]["convergence_achieved"]
+        
+        console.print(f"\n🔄 ITERATION SUMMARY", style="bold blue")
+        console.print(f"  📝 Requested Iterations: {requested_iterations}", style="cyan")
+        console.print(f"  ✅ Used Iterations: {used_iterations}", style="green")
+        
+        if convergence_achieved:
+            console.print(f"  🎯 Status: Convergence achieved after {used_iterations} iteration{'s' if used_iterations != 1 else ''}", style="green")
+            if used_iterations < requested_iterations:
+                console.print(f"  💡 Early Stop: Stopped {requested_iterations - used_iterations} iteration{'s' if (requested_iterations - used_iterations) != 1 else ''} early due to quality convergence", style="dim green")
+        else:
+            console.print(f"  ⏸️  Status: Maximum iterations reached without convergence", style="yellow")
+        
         # Metrics summary
         console.print(f"\n📈 QUALITY METRICS", style="bold blue")
         console.print(f"  🎯 Final Confidence: {results['results']['confidence_score']*100:.1f}%", style="green")
@@ -251,4 +267,48 @@ class ResponseSynthesizer:
         console.print(f"  ⏱️  Total Duration: {results['performance']['total_duration_ms']/1000:.1f}s", style="cyan")
         console.print(f"  💰 Estimated Cost: ${results['performance']['estimated_cost_usd']:.4f}", style="cyan")
         
-        console.print("\n" + "="*80, style="bold blue") 
+        console.print("\n" + "="*80, style="bold blue")
+
+    def _calculate_actual_cost(self, prompt: str, creator_model: str, critic_names: List[str], workflow_results: Dict[str, Any]) -> float:
+        """Calculate the actual cost of the workflow execution."""
+        def estimate_tokens(text: str) -> int:
+            """Estimate token count from text. Rough approximation: ~4 characters per token."""
+            if not text:
+                return 0
+            return max(1, len(text) // 4)
+        
+        total_cost = 0.0
+        input_tokens = estimate_tokens(prompt)
+        
+        # Estimate standard output tokens (these are estimates since we don't have exact token counts)
+        creator_output_tokens_base = 500
+        critic_output_tokens_base = 200
+        
+        for iteration_num, iteration in enumerate(workflow_results.get("iterations", []), 1):
+            # Creator cost for this iteration
+            creator_data = iteration.get("creator", {}).get("creator_response", {})
+            creator_content = creator_data.get("content", "")
+            
+            # Estimate actual tokens used (context grows with iterations)
+            context_multiplier = 1 + (iteration_num - 1) * 0.3
+            iteration_input_tokens = int(input_tokens * context_multiplier)
+            
+            # Use actual creator response length for better accuracy
+            creator_output_tokens = estimate_tokens(creator_content) if creator_content else creator_output_tokens_base
+            
+            # Calculate creator cost (input + output)
+            creator_input_cost = self.llm_client.estimate_cost(creator_model, iteration_input_tokens)
+            creator_output_cost = self.llm_client.estimate_cost(creator_model, creator_output_tokens)
+            total_cost += creator_input_cost + creator_output_cost
+            
+            # Critics cost for this iteration
+            for critic_name in critic_names:
+                # Critics analyze creator output + original prompt
+                critic_input_tokens = input_tokens + creator_output_tokens
+                
+                # Use standard critic output estimate
+                critic_input_cost = self.llm_client.estimate_cost(critic_name, critic_input_tokens)
+                critic_output_cost = self.llm_client.estimate_cost(critic_name, critic_output_tokens_base)
+                total_cost += critic_input_cost + critic_output_cost
+        
+        return total_cost

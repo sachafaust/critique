@@ -61,6 +61,7 @@ class CriticResponse(BaseResponseModel):
     specific_feedback: str
     continue_iteration: bool = Field(default=True)
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+    critic_model: str = Field(default="unknown")
 
     @validator('quality_score')
     def normalize_score(cls, v):
@@ -210,6 +211,7 @@ class CriticValidator(BaseValidator):
             "specific_feedback": "Failed to validate critic response",
             "continue_iteration": False,
             "confidence": 0.5,
+            "critic_model": "unknown",
             "version": self.version,
             "timestamp": datetime.now().isoformat(),
             "metadata": {"error": True}
