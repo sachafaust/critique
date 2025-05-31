@@ -1,42 +1,44 @@
-# Default models to use
+# LLM Critique Configuration
+# This file demonstrates all available configuration options
+
+# Default models for creator-critic workflow
+# These will be used as critic models when none are specified
 default_models:
-  - gpt-4
-  - claude-3-opus
+  - gpt-4o-mini
   - gemini-pro
+  - claude-3-haiku
 
-# Default resolver model for synthesis
-default_resolver: gpt-4
+# Default creator model (set to "auto" to use first available model)
+default_creator: auto
 
-# Maximum number of synthesis iterations
-max_iterations: 3
-
-# Minimum confidence threshold for synthesis
+# Workflow settings
+max_iterations: 2
 confidence_threshold: 0.8
 
-# Timeout in seconds for model execution
-timeout: 30
+# Performance settings
+timeout_seconds: 30
 
 # Logging configuration
-log_dir: logs
 log_level: INFO
+log_format: json
+log_directory: ./logs
 
-# Model-specific settings
+# Model-specific settings (optional)
+# These settings are applied to individual models during execution
 model_settings:
-  gpt-4:
-    provider: openai
-    context_length: 8192
-    cost_per_1k_tokens:
-      input: 0.03
-      output: 0.06
-  claude-3-opus:
-    provider: anthropic
-    context_length: 200000
-    cost_per_1k_tokens:
-      input: 0.015
-      output: 0.075
+  gpt-4o:
+    temperature: 0.7
+    max_tokens: 2000
+  
+  claude-4-sonnet:
+    temperature: 0.7
+    max_tokens: 2000
+    
   gemini-pro:
-    provider: google
-    context_length: 32768
-    cost_per_1k_tokens:
-      input: 0.00025
-      output: 0.0005 
+    temperature: 0.7
+    max_tokens: 2000
+
+# Cost tracking settings
+cost_tracking:
+  enabled: true
+  warn_threshold: 0.10  # Warn if estimated cost exceeds $0.10 

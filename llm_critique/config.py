@@ -12,7 +12,7 @@ class Config(BaseModel):
     
     # Model configuration
     default_models: List[str] = Field(
-        ["gpt-4o", "claude-4-sonnet", "gemini-2.5-pro"],
+        ["gpt-4o-mini", "gemini-pro", "claude-3-haiku"],
         env="LLM_CRITIQUE_DEFAULT_MODELS"
     )
     default_creator: str = Field("auto", env="LLM_CRITIQUE_DEFAULT_CREATOR")
