@@ -148,16 +148,100 @@ def display_available_models():
     ))
     console.print()
 
+def validate_config_models(config_obj, available_models: List[str], debug: bool) -> bool:
+    """Validate that config models are available and provide guidance if not."""
+    if not config_obj:
+        return False
+    
+    # Check if config has any default models
+    if not hasattr(config_obj, 'default_models') or not config_obj.default_models:
+        console.print("[yellow]⚠️  Config file exists but has no default_models configured[/yellow]")
+        return False
+    
+    # Check if default models are available
+    available_defaults = [m for m in config_obj.default_models if m in available_models]
+    unavailable_defaults = [m for m in config_obj.default_models if m not in available_models]
+    
+    if unavailable_defaults:
+        console.print(f"[yellow]⚠️  Config default_models not available: {', '.join(unavailable_defaults)}[/yellow]")
+        if debug:
+            console.print(f"[dim]Available models: {', '.join(available_models)}[/dim]")
+        return False
+    
+    if not available_defaults:
+        console.print("[yellow]⚠️  No default models from config are available[/yellow]")
+        return False
+    
+    # Check creator model if specified
+    if hasattr(config_obj, 'default_creator') and config_obj.default_creator != "auto":
+        if config_obj.default_creator not in available_models:
+            console.print(f"[yellow]⚠️  Config default_creator '{config_obj.default_creator}' not available[/yellow]")
+            return False
+    
+    return True
+
+def show_model_requirements():
+    """Show clear guidance on model requirements."""
+    console.print()
+    console.print(Panel.fit(
+        "[bold red]❌ Model Configuration Required[/bold red]\n\n"
+        "[bold]You need to specify models in one of these ways:[/bold]\n\n"
+        "[cyan]Option 1: CLI Arguments[/cyan]\n"
+        "python -m llm_critique.main 'Your prompt' \\\n"
+        "  --creator-model gpt-4o-mini \\\n"
+        "  --critique-models gemini-pro,claude-3-haiku\n\n"
+        "[cyan]Option 2: Config File[/cyan]\n"
+        "1. Copy template: [dim]cp config.yaml.example config.yaml[/dim]\n"
+        "2. Edit config.yaml with your preferred models\n"
+        "3. Run: [dim]python -m llm_critique.main 'Your prompt'[/dim]\n\n"
+        "[cyan]Option 3: Check Available Models[/cyan]\n"
+        "python -m llm_critique.main --list-models",
+        title="[bold red]Setup Required[/bold red]",
+        border_style="red"
+    ))
+    console.print()
+
 def print_debug_info(debug: bool, **kwargs):
-    """Print debug information if debug mode is enabled."""
-    if debug:
-        for key, value in kwargs.items():
+    """Print debug information if debug mode is enabled, with security filtering."""
+    if not debug:
+        return
+    
+    # Security: Filter out sensitive keys
+    SENSITIVE_PATTERNS = [
+        'api_key', 'secret', 'token', 'password', 'credential', 
+        'key', 'auth', 'bearer', 'oauth'
+    ]
+    
+    for key, value in kwargs.items():
+        # Check if key contains sensitive patterns
+        key_lower = key.lower()
+        if any(pattern in key_lower for pattern in SENSITIVE_PATTERNS):
+            console.print(f"[dim]DEBUG {key}: [REDACTED][/dim]")
+            continue
+            
+        # Check if value might be a config object with sensitive data
+        if hasattr(value, '__dict__'):
+            safe_attrs = {}
+            for attr_name in dir(value):
+                if not attr_name.startswith('_'):
+                    attr_lower = attr_name.lower()
+                    if any(pattern in attr_lower for pattern in SENSITIVE_PATTERNS):
+                        safe_attrs[attr_name] = "[REDACTED]"
+                    else:
+                        try:
+                            attr_value = getattr(value, attr_name)
+                            if not callable(attr_value):
+                                safe_attrs[attr_name] = attr_value
+                        except:
+                            safe_attrs[attr_name] = "[ERROR_ACCESSING]"
+            console.print(f"[dim]DEBUG {key}: {safe_attrs}[/dim]")
+        else:
             console.print(f"[dim]DEBUG {key}: {value}[/dim]")
 
 @click.command()
 @click.argument('prompt', required=False)
 @click.option('-f', '--file', help='Read prompt from file')
-@click.option('--creator-model', help='Model for content creation (e.g., gpt-4)')
+@click.option('--creator-model', help='Model for content creation (e.g., gpt-4o)')
 @click.option('--critique-models', help='Comma-separated critic models (e.g., claude-3-sonnet,gemini-pro)')
 @click.option('--format', type=click.Choice(['human', 'json']), default='human')
 @click.option('--debug', is_flag=True, help='Enable debug logging')
@@ -184,15 +268,26 @@ def cli(
 ):
     """Multi-LLM critique and synthesis tool with creator-critic iteration.
     
+    REQUIREMENTS:
+      Either provide models via CLI arguments:
+        --creator-model MODEL --critique-models MODEL1,MODEL2
+      
+      Or create a config.yaml file with default models:
+        See config.yaml.example for template
+    
     Use --list-models to see all supported AI models and their availability.
     """
     
     async def run_async():
         nonlocal prompt, creator_model  # Allow modification of these variables
         
-        # Show help if no arguments provided
-        if not any([prompt, file, creator_model, critique_models, debug, config, iterations, listen, replay, list_models, est_cost]):
-            click.echo(cli.get_help())
+        # Show help if no meaningful arguments provided
+        # Note: iterations has default=1, so we exclude it from this check
+        meaningful_args = [prompt, file, creator_model, critique_models, config, listen, replay, list_models, est_cost, debug]
+        if not any(meaningful_args):
+            ctx = click.get_current_context()
+            click.echo(ctx.get_help())
+            ctx.exit()
             return
 
         # Create unique execution ID
@@ -220,6 +315,31 @@ def cli(
             # Load configuration (needed for cost estimation and normal operation)
             config_obj = load_config(config)
             
+            # Get available models once
+            available_models = get_available_models()
+            
+            # Check if we have any API keys at all
+            if not available_models:
+                console.print("[red]❌ No API keys found[/red]")
+                console.print("Please set at least one API key in your .env file:")
+                console.print("• OPENAI_API_KEY")  
+                console.print("• ANTHROPIC_API_KEY")
+                console.print("• GOOGLE_API_KEY")
+                console.print()
+                console.print("See env.example for guidance")
+                return
+            
+            # Determine if we have explicit CLI model arguments
+            has_cli_models = bool(creator_model or critique_models)
+            
+            # If no CLI models, check if config is valid
+            config_is_valid = False
+            if not has_cli_models:
+                config_is_valid = validate_config_models(config_obj, available_models, debug)
+                if not config_is_valid:
+                    show_model_requirements()
+                    return
+            
             # Estimate cost if requested
             if est_cost:
                 estimate_workflow_cost(prompt, file, creator_model, critique_models, iterations, config_obj, debug)
@@ -234,12 +354,10 @@ def cli(
                 console.print("[red]Error: No prompt provided[/red]")
                 raise click.Abort()
 
-            # Parse model list
+            # Parse critic models - now with validation
             if critique_models:
                 requested_models = [m.strip() for m in critique_models.split(',')]
                 print_debug_info(debug, requested_models=requested_models)
-                # Filter to only available models
-                available_models = get_available_models()
                 models_to_use = [m for m in requested_models if m in available_models]
                 
                 # Warn about unavailable models
@@ -248,20 +366,28 @@ def cli(
                     console.print(f"[yellow]Warning: Models not available: {', '.join(unavailable)}[/yellow]")
                 
                 if not models_to_use:
-                    console.print("[red]Error: No available models found[/red]")
+                    console.print("[red]Error: No critic models available from your selection[/red]")
+                    console.print(f"Available models: {', '.join(available_models)}")
                     return
             else:
-                # Use default models from config
-                available_models = get_available_models()
+                # Use validated config models  
                 models_to_use = [m for m in config_obj.default_models if m in available_models]
-                if not models_to_use:
-                    models_to_use = available_models
             
-            # Set creator model
-            if not creator_model:
+            # Set creator model - now with validation
+            if creator_model:
+                if creator_model not in available_models:
+                    console.print(f"[red]Error: Creator model '{creator_model}' not available[/red]")
+                    console.print(f"Available models: {', '.join(available_models)}")
+                    return
+            else:
+                # Use validated config creator
                 creator_model = config_obj.default_creator
-            if creator_model == "auto":
-                creator_model = models_to_use[0] if models_to_use else "gpt-4"
+                if creator_model == "auto":
+                    creator_model = models_to_use[0] if models_to_use else available_models[0]
+                elif creator_model not in available_models:
+                    console.print(f"[red]Error: Config creator model '{creator_model}' not available[/red]")
+                    console.print(f"Available models: {', '.join(available_models)}")
+                    return
             
             print_debug_info(debug, 
                 models_to_use=models_to_use,
@@ -363,25 +489,52 @@ def estimate_workflow_cost(prompt: Optional[str], file: Optional[str], creator_m
         # Get available models
         available_models = get_available_models()
         
+        # Check if we have any API keys at all
+        if not available_models:
+            console.print("[red]❌ No API keys found[/red]")
+            console.print("Please set at least one API key in your .env file")
+            return
+        
+        # Determine if we have explicit CLI model arguments
+        has_cli_models = bool(creator_model or critique_models)
+        
+        # If no CLI models, check if config is valid
+        if not has_cli_models:
+            config_is_valid = validate_config_models(config_obj, available_models, debug)
+            if not config_is_valid:
+                show_model_requirements()
+                return
+        
         # Parse critic models
         if critique_models:
             requested_models = [m.strip() for m in critique_models.split(',')]
             models_to_use = [m for m in requested_models if m in available_models]
+            
+            unavailable = [m for m in requested_models if m not in available_models]
+            if unavailable:
+                console.print(f"[yellow]Warning: Models not available: {', '.join(unavailable)}[/yellow]")
+            
+            if not models_to_use:
+                console.print("[red]Error: No critic models available from your selection[/red]")
+                console.print(f"Available models: {', '.join(available_models)}")
+                return
         else:
             models_to_use = [m for m in config_obj.default_models if m in available_models]
-            if not models_to_use:
-                models_to_use = available_models[:2]  # Use first 2 available as fallback
         
         # Set creator model
-        if not creator_model:
+        if creator_model:
+            if creator_model not in available_models:
+                console.print(f"[red]Error: Creator model '{creator_model}' not available[/red]")
+                console.print(f"Available models: {', '.join(available_models)}")
+                return
+        else:
             creator_model = config_obj.default_creator
-        if creator_model == "auto":
-            creator_model = available_models[0] if available_models else "gpt-4o"
-        
-        if creator_model not in available_models:
-            console.print(f"[red]Error: Creator model '{creator_model}' not available[/red]")
-            console.print(f"Available models: {', '.join(available_models)}")
-            return
+            if creator_model == "auto":
+                creator_model = models_to_use[0] if models_to_use else available_models[0]
+            elif creator_model not in available_models:
+                console.print(f"[red]Error: Config creator model '{creator_model}' not available[/red]")
+                console.print(f"Available models: {', '.join(available_models)}")
+                return
         
         if not models_to_use:
             console.print("[red]Error: No critic models available[/red]")

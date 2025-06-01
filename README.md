@@ -381,6 +381,36 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Discussions**: [GitHub Discussions](https://github.com/yourusername/llm-critique/discussions)
 - **Documentation**: This README and inline code documentation
 
+## 🔒 Security & Privacy
+
+**Important Security Information:**
+
+### API Key Security
+- ✅ **Never commit API keys** to version control
+- ✅ Store keys only in `.env` files (excluded from git)
+- ✅ Use environment variables for all credentials
+- ✅ Keys are automatically redacted from debug output and logs
+
+### Data Handling
+- 🔄 **Conversation files** may contain sensitive prompts - stored with restrictive permissions (600)
+- 📝 **Log files** use security filtering to prevent credential leakage
+- 🚫 **No data sent to external services** beyond the specified AI APIs
+
+### Best Practices
+```bash
+# ✅ Good - Use environment variables
+export OPENAI_API_KEY="sk-your-key-here"
+
+# ❌ Bad - Never hardcode in scripts
+api_key = "sk-your-key-here"  # DON'T DO THIS
+```
+
+### File Permissions
+The tool automatically sets secure file permissions:
+- Log files: `600` (owner read/write only)
+- Conversation files: `600` (owner read/write only)
+- Config directory: `755` (standard directory permissions)
+
 ---
 
 **Made with ❤️ for the AI community** 

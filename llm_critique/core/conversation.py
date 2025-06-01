@@ -1,5 +1,7 @@
 from typing import Dict, List, Optional
 import json
+import os
+import stat
 from datetime import datetime
 from pathlib import Path
 from rich.console import Console
@@ -10,13 +12,37 @@ from rich.syntax import Syntax
 console = Console()
 
 class ConversationManager:
-    """Manages conversation recording and replay functionality."""
+    """Manages conversation recording and replay functionality with security controls."""
     
     def __init__(self):
         self.conversation_steps = []
         
+    def _sanitize_data(self, data: Dict) -> Dict:
+        """Remove or redact sensitive information from conversation data."""
+        SENSITIVE_KEYS = ['api_key', 'secret', 'token', 'password', 'credential', 'auth']
+        
+        def redact_recursive(obj):
+            if isinstance(obj, dict):
+                sanitized = {}
+                for key, value in obj.items():
+                    key_lower = key.lower()
+                    if any(sensitive in key_lower for sensitive in SENSITIVE_KEYS):
+                        sanitized[key] = "[REDACTED]"
+                    elif key.lower() == 'prompt' and isinstance(value, str) and len(value) > 1000:
+                        # Truncate very long prompts to prevent data leakage
+                        sanitized[key] = value[:500] + "... [TRUNCATED FOR SECURITY]"
+                    else:
+                        sanitized[key] = redact_recursive(value)
+                return sanitized
+            elif isinstance(obj, list):
+                return [redact_recursive(item) for item in obj]
+            else:
+                return obj
+        
+        return redact_recursive(data)
+        
     def record_step(self, step_type: str, data: Dict):
-        """Record a step in the conversation."""
+        """Record a step in the conversation with security sanitization."""
         def serialize_datetime(obj):
             """Convert datetime objects to ISO format strings."""
             if isinstance(obj, datetime):
@@ -28,15 +54,18 @@ class ConversationManager:
             else:
                 return obj
         
+        # Sanitize sensitive data before storage
+        sanitized_data = self._sanitize_data(data)
+        
         step = {
             "timestamp": datetime.now().isoformat(),
             "type": step_type,
-            "data": serialize_datetime(data)
+            "data": serialize_datetime(sanitized_data)
         }
         self.conversation_steps.append(step)
     
     def save_conversation(self, file_path: str):
-        """Save conversation to file."""
+        """Save conversation to file with secure permissions."""
         path = Path(file_path)
         if not path.suffix:
             path = path.with_suffix('.json')
@@ -45,13 +74,21 @@ class ConversationManager:
             "metadata": {
                 "created_at": datetime.now().isoformat(),
                 "version": "1.0",
-                "total_steps": len(self.conversation_steps)
+                "total_steps": len(self.conversation_steps),
+                "security_notice": "This file may contain sensitive conversation data. Protect accordingly."
             },
             "steps": self.conversation_steps
         }
         
+        # Create file with restrictive permissions (owner read/write only)
         with open(path, 'w') as f:
             json.dump(conversation_data, f, indent=2)
+        
+        # Set secure file permissions (600 = rw-------)
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        
+        console.print(f"[yellow]⚠️  Conversation saved to {path} with secure permissions[/yellow]")
+        console.print(f"[dim]File permissions: 600 (owner read/write only)[/dim]")
     
     def load_conversation(self, file_path: str) -> Dict:
         """Load conversation from file."""

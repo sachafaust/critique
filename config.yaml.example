@@ -6,6 +6,7 @@
 default_models:
   - gpt-4o-mini
   - gemini-pro
+  - claude-3-haiku
 
 # Default creator model (set to "auto" to use first available model)
 default_creator: auto

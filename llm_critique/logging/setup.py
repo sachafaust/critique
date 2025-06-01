@@ -1,11 +1,58 @@
 import structlog
 import sys
 import json
+import os
+import stat
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
 from rich.logging import RichHandler
+
+
+class SecurityFilter:
+    """Filter to remove sensitive information from log records."""
+    
+    SENSITIVE_PATTERNS = [
+        'api_key', 'secret', 'token', 'password', 'credential',
+        'auth', 'bearer', 'oauth', 'sk-', 'key_'
+    ]
+    
+    def __call__(self, logger, method_name, event_dict):
+        """Filter sensitive data from log entries."""
+        # Filter event message
+        if 'event' in event_dict:
+            event_dict['event'] = self._redact_sensitive(str(event_dict['event']))
+        
+        # Filter all other fields
+        for key, value in list(event_dict.items()):
+            if self._is_sensitive_key(key):
+                event_dict[key] = "[REDACTED]"
+            elif isinstance(value, str):
+                event_dict[key] = self._redact_sensitive(value)
+        
+        return event_dict
+    
+    def _is_sensitive_key(self, key: str) -> bool:
+        """Check if a key name suggests sensitive data."""
+        key_lower = key.lower()
+        return any(pattern in key_lower for pattern in self.SENSITIVE_PATTERNS)
+    
+    def _redact_sensitive(self, text: str) -> str:
+        """Redact sensitive patterns in text."""
+        import re
+        # Redact patterns that look like API keys
+        patterns = [
+            r'sk-[a-zA-Z0-9]{20,}',  # OpenAI style keys
+            r'sk-ant-[a-zA-Z0-9]{20,}',  # Anthropic keys
+            r'AIza[a-zA-Z0-9]{35}',  # Google API keys
+            r'(?i)(api[_-]?key|secret|token|password|credential)["\s]*[:=]["\s]*[a-zA-Z0-9_-]{10,}',
+        ]
+        
+        for pattern in patterns:
+            text = re.sub(pattern, '[REDACTED_API_KEY]', text)
+        
+        return text
 
 
 def setup_logging(
@@ -14,19 +61,25 @@ def setup_logging(
     trace_id: Optional[str] = None,
     log_dir: str = "./logs"
 ) -> structlog.BoundLogger:
-    """Setup structured logging for both humans and machines."""
+    """Setup structured logging for both humans and machines with security controls."""
     
     # Create log directory if it doesn't exist
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
     
+    # Set secure directory permissions (755 = rwxr-xr-x)
+    os.chmod(log_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    
     # Generate timestamp for log file
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_path / f"{timestamp}_critique.json"
     
-    # Configure structlog
+    # Configure structlog with security filter
+    security_filter = SecurityFilter()
+    
     structlog.configure(
         processors=[
+            security_filter,  # Add security filter first
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.stdlib.add_log_level,
             structlog.processors.StackInfoRenderer(),
@@ -40,27 +93,25 @@ def setup_logging(
         cache_logger_on_first_use=True,
     )
     
-    # Create console handler with Rich formatting
-    console = Console()
-    rich_handler = RichHandler(
-        console=console,
-        show_time=True,
-        show_path=True,
-        rich_tracebacks=True
-    )
-    
-    # Create file handler for JSON logging
-    file_handler = structlog.processors.JSONRenderer()
+    # Create file with restrictive permissions
+    log_file.touch()
+    os.chmod(log_file, stat.S_IRUSR | stat.S_IWUSR)  # 600 = rw-------
     
     # Create logger
     logger = structlog.get_logger()
     
-    # Add trace ID to context if provided
+    # Add trace ID if provided
     if trace_id:
         logger = logger.bind(trace_id=trace_id)
     
     # Add component identifier
     logger = logger.bind(component="multi_llm")
+    
+    # Log security notice
+    logger.info("logging_initialized", 
+                log_file=str(log_file),
+                security_filtering="enabled",
+                file_permissions="600")
     
     return logger
 

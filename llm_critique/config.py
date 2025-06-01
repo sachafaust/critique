@@ -10,9 +10,9 @@ class Config(BaseModel):
     anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
     google_api_key: Optional[str] = Field(None, env="GOOGLE_API_KEY")
     
-    # Model configuration
+    # Model configuration - using conservative defaults
     default_models: List[str] = Field(
-        ["gpt-4o-mini", "gemini-pro", "claude-3-haiku"],
+        ["gpt-4o-mini", "gemini-pro"],
         env="LLM_CRITIQUE_DEFAULT_MODELS"
     )
     default_creator: str = Field("auto", env="LLM_CRITIQUE_DEFAULT_CREATOR")
@@ -70,12 +70,15 @@ def get_available_models(config: Config) -> List[str]:
 
 def load_config(config_path: Optional[str] = None) -> Config:
     """Load configuration from file and environment variables."""
-    # First load from environment variables
+    # First load from environment variables and defaults
     config = Config()
     
-    # Then load from YAML if provided
-    if config_path and os.path.exists(config_path):
-        with open(config_path, 'r') as f:
+    # Determine config file path
+    yaml_path = config_path if config_path else "config.yaml"
+    
+    # Then load from YAML if it exists
+    if os.path.exists(yaml_path):
+        with open(yaml_path, 'r') as f:
             yaml_config = yaml.safe_load(f)
             
             # Update config with YAML values
