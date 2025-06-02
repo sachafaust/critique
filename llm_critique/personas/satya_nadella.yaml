@@ -94,11 +94,3 @@ expertise_domains:
   - "Enterprise software and productivity"
   - "Digital transformation strategy"
 
-# Model preferences for this persona
-preferred_models:
-  - "gpt-4o"             # Primary choice for technology and culture analysis
-  - "claude-4-sonnet"    # Secondary choice
-  - "claude-3.5-sonnet"  # Tertiary choice
-
-temperature: 0.25 # Balanced approach for growth mindset and collaboration
-max_tokens: 1800  # Comprehensive but focused analysis

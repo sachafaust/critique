@@ -120,14 +120,14 @@ class LLMClient:
         
         # Google
         if os.getenv("GOOGLE_API_KEY"):
-            # Gemini 2.5 series (latest)
-            self.clients["gemini-2.5-pro"] = ChatGoogleGenerativeAI(
-                model="gemini-2.5-pro",
+            # Gemini 2.5 series (latest preview models)
+            self.clients["gemini-2.5-pro-preview-05-06"] = ChatGoogleGenerativeAI(
+                model="gemini-2.5-pro-preview-05-06",
                 temperature=0.7,
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
-            self.clients["gemini-2.5-flash"] = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
+            self.clients["gemini-2.5-flash-preview-05-20"] = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash-preview-05-20",
                 temperature=0.7,
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
@@ -138,10 +138,25 @@ class LLMClient:
                 temperature=0.7,
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
+            self.clients["gemini-2.0-flash-lite"] = ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash-lite",
+                temperature=0.7,
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
             
-            # Legacy gemini-pro (maps to 2.0-flash for compatibility)
-            self.clients["gemini-pro"] = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
+            # Gemini 1.5 series
+            self.clients["gemini-1.5-flash"] = ChatGoogleGenerativeAI(
+                model="gemini-1.5-flash",
+                temperature=0.7,
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
+            self.clients["gemini-1.5-flash-8b"] = ChatGoogleGenerativeAI(
+                model="gemini-1.5-flash-8b",
+                temperature=0.7,
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
+            self.clients["gemini-1.5-pro"] = ChatGoogleGenerativeAI(
+                model="gemini-1.5-pro",
                 temperature=0.7,
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
@@ -195,10 +210,13 @@ class LLMClient:
             "claude-3-haiku": 0.00025,  # $0.00025 per 1K tokens (input, $0.00125 output)
             
             # Google Gemini models
-            "gemini-2.5-pro": 0.00125,  # $0.00125 per 1K tokens 
-            "gemini-2.5-flash": 0.0005,  # $0.0005 per 1K tokens
+            "gemini-2.5-pro-preview-05-06": 0.00125,  # $0.00125 per 1K tokens 
+            "gemini-2.5-flash-preview-05-20": 0.0005,  # $0.0005 per 1K tokens
             "gemini-2.0-flash": 0.001,  # $0.001 per 1K tokens
-            "gemini-pro": 0.001  # $0.001 per 1K tokens (legacy, maps to 2.0-flash)
+            "gemini-2.0-flash-lite": 0.0005,  # $0.0005 per 1K tokens
+            "gemini-1.5-flash": 0.0005,  # $0.0005 per 1K tokens
+            "gemini-1.5-flash-8b": 0.0005,  # $0.0005 per 1K tokens
+            "gemini-1.5-pro": 0.0005  # $0.0005 per 1K tokens
         }
         
         return (tokens / 1000) * costs.get(model, 0.0) 

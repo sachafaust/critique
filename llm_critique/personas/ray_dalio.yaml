@@ -81,11 +81,3 @@ expertise_domains:
   - "Leadership development"
   - "Decision-making frameworks"
 
-# Model preferences for this persona
-preferred_models:
-  - "gpt-4o"          # Primary choice for systematic analysis
-  - "claude-4-sonnet" # Secondary choice
-  - "claude-3.5-sonnet" # Tertiary choice
-
-temperature: 0.2  # Slightly creative but still systematic
-max_tokens: 2000  # Allow for detailed analysis 

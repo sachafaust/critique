@@ -81,13 +81,4 @@ expertise_domains:
   - "Brand building and marketing"
   - "Technology integration and simplification"
   - "Consumer psychology"
-  - "Vision and strategy communication"
-
-# Model preferences for this persona
-preferred_models:
-  - "claude-4-sonnet"    # Primary for creative and user-focused thinking
-  - "gpt-4o"             # Secondary choice
-  - "claude-3.5-sonnet"  # Tertiary choice
-
-temperature: 0.3  # Higher creativity for innovation focus
-max_tokens: 1800  # Focused but comprehensive analysis 
+  - "Vision and strategy communication" 

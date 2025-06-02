@@ -2,6 +2,10 @@
 # Copy this file and rename to create new expert personas in the personas/ directory
 # Place persona files directly in llm_critique/personas/ (no subdirectories needed)
 # Remove all comments when creating actual persona files
+#
+# NOTE: LLM settings (preferred_model, temperature, max_tokens) are managed in code,
+# not in persona files. Persona files should focus only on WHO the person is,
+# their expertise, and thinking patterns.
 
 name: "Expert Name"  # Full name of the expert
 description: "Brief description of who they are and their key expertise areas"
@@ -72,16 +76,3 @@ expertise_domains:
   - "Third domain they're known for"
   # Add more domains as needed
 
-# Model preferences for this persona
-preferred_models:
-  - "model-name-1"    # Primary choice with reason
-  - "model-name-2"    # Secondary choice
-  - "model-name-3"    # Tertiary choice
-
-temperature: 0.2      # 0.1-0.4 depending on creativity needs
-max_tokens: 1800      # 1500-2000 depending on detail needs
-
-# Optional: Additional metadata
-# expertise_level: "world_class"  # expert, senior, world_class
-# industry_focus: ["technology", "business"]  # relevant industries
-# time_period: "1980s-2010s"  # when they were most active/influential 

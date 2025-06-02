@@ -11,6 +11,7 @@ from rich.traceback import install
 import os
 import yaml
 import uuid
+import copy
 
 from .config import Config, load_config
 from .logging.setup import setup_logging, log_execution
@@ -46,8 +47,9 @@ def get_available_models() -> List[str]:
     
     if os.getenv("GOOGLE_API_KEY"):
         available.extend([
-            "gemini-2.5-pro", "gemini-2.5-flash",
-            "gemini-2.0-flash", "gemini-pro", "gemini-1.0-pro"
+            "gemini-2.5-flash-preview-05-20", "gemini-2.5-pro-preview-05-06",
+            "gemini-2.0-flash", "gemini-2.0-flash-lite",
+            "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"
         ])
     
     return available
@@ -88,10 +90,13 @@ def display_available_models():
         },
         "Google Gemini Models": {
             "models": [
-                ("gemini-2.5-pro", "Gemini 2.5 Pro", "Most advanced Gemini (limited access)", "$0.00125"),
-                ("gemini-2.5-flash", "Gemini 2.5 Flash", "Fast multimodal model", "$0.0005"),
-                ("gemini-2.0-flash", "Gemini 2.0 Flash", "Reliable multimodal performance", "$0.001"),
-                ("gemini-pro", "Gemini Pro", "Legacy model (maps to 2.0-flash)", "$0.001"),
+                ("gemini-2.5-flash-preview-05-20", "Gemini 2.5 Flash Preview", "Latest flash model with adaptive thinking (preview)", "$0.0005"),
+                ("gemini-2.5-pro-preview-05-06", "Gemini 2.5 Pro Preview", "Most advanced reasoning model (preview)", "$0.0020"),
+                ("gemini-2.0-flash", "Gemini 2.0 Flash", "Next-gen multimodal with 1M context", "$0.001"),
+                ("gemini-2.0-flash-lite", "Gemini 2.0 Flash-Lite", "Cost-efficient with low latency", "$0.0005"),
+                ("gemini-1.5-flash", "Gemini 1.5 Flash", "Fast multimodal performance", "$0.001"),
+                ("gemini-1.5-flash-8b", "Gemini 1.5 Flash-8B", "Smaller model for high volume tasks", "$0.0003"),
+                ("gemini-1.5-pro", "Gemini 1.5 Pro", "Complex reasoning with 2M context", "$0.003"),
             ],
             "api_key": "GOOGLE_API_KEY"
         }
@@ -247,12 +252,23 @@ def display_available_personas(config_obj=None):
             f"[bold]Summary:[/bold]\n"
             f"• Expert personas: {personas_info['total_personas']}\n"
             f"• Vanilla models: {personas_info['total_models']}\n\n"
-            f"[bold]Usage Examples:[/bold]\n"
-            f"[cyan]Expert personas:[/cyan] --personas ray_dalio,steve_jobs\n"
-            f"[cyan]Vanilla models:[/cyan] --critique-models claude-4-sonnet,gpt-4o\n"
-            f"[cyan]Mixed mode:[/cyan] Not supported (mutually exclusive)\n\n"
+            f"[bold]🎭 Expert Personas (rich personality & expertise):[/bold]\n"
+            f"[cyan]Single personas:[/cyan] --personas ray_dalio,steve_jobs\n"
+            f"[cyan]All personas:[/cyan] --personas all --personas-model o3-mini\n"
+            f"[cyan]With model override:[/cyan] --personas steve_jobs --personas-model claude-4-sonnet\n\n"
+            f"[bold]🤖 Vanilla Models (standard AI without personality):[/bold]\n"
+            f"[cyan]Multiple models:[/cyan] --critique-models claude-4-sonnet,gpt-4o\n"
+            f"[cyan]Single model:[/cyan] --critique-models gpt-4o\n\n"
+            f"[bold]🔧 Key Rules:[/bold]\n"
+            f"• --personas and --critique-models are mutually exclusive\n"
+            f"• --personas-model only works with --personas (overrides all)\n"
+            f"• --personas all requires --personas-model\n"
+            f"• Expert personas have preferred models, vanilla models work as-is\n\n"
+            f"[bold]💡 Creator Options:[/bold]\n"
+            f"[cyan]Expert creator:[/cyan] --creator-persona steve_jobs\n"
+            f"[cyan]Vanilla creator:[/cyan] --creator-persona gpt-4o\n\n"
             f"[dim]💡 Use --persona-info NAME for detailed information about a specific persona[/dim]",
-            title="[bold green]Persona System[/bold green]",
+            title="[bold green]Persona System Guide[/bold green]",
             border_style="green"
         ))
         console.print()
@@ -283,9 +299,14 @@ def display_persona_info(persona_name: str, config_obj=None):
         basic_table.add_row("Name", persona_info['name'])
         basic_table.add_row("Type", persona_info['type'].title())
         basic_table.add_row("Description", persona_info['description'])
-        basic_table.add_row("Preferred Model", persona_info['preferred_model'])
-        basic_table.add_row("Temperature", str(persona_info['temperature']))
-        basic_table.add_row("Max Tokens", str(persona_info['max_tokens']))
+        if persona_info['type'] == 'expert':
+            basic_table.add_row("Preferred Model", f"{persona_info['preferred_model']} (managed in code)")
+            basic_table.add_row("Temperature", f"{persona_info['temperature']} (managed in code)")
+            basic_table.add_row("Max Tokens", f"{persona_info['max_tokens']} (managed in code)")
+        else:
+            basic_table.add_row("Preferred Model", persona_info['preferred_model'])
+            basic_table.add_row("Temperature", str(persona_info['temperature']))
+            basic_table.add_row("Max Tokens", str(persona_info['max_tokens']))
         basic_table.add_row("Context Size", f"~{persona_info['context_size_estimate']} tokens")
         
         console.print(basic_table)
@@ -346,30 +367,41 @@ def validate_persona_arguments(personas: Optional[str], critique_models: Optiona
     if personas and critique_models:
         console.print("[red]❌ Error: --personas and --critique-models are mutually exclusive[/red]")
         console.print()
-        console.print("[bold]Choose one approach:[/bold]")
-        console.print("[cyan]Expert personas:[/cyan] --personas ray_dalio,steve_jobs --personas-model o1")
-        console.print("[cyan]All personas:[/cyan] --personas all --personas-model o1") 
-        console.print("[cyan]Vanilla models:[/cyan] --critique-models claude-4-sonnet,gpt-4o")
+        console.print("[bold]🎭 Expert Personas (choose one):[/bold]")
+        console.print("[cyan]Specific personas:[/cyan] --personas ray_dalio,steve_jobs")
+        console.print("[cyan]All personas:[/cyan] --personas all --personas-model o3-mini")
+        console.print("[cyan]With model override:[/cyan] --personas steve_jobs --personas-model claude-4-sonnet")
         console.print()
-        console.print("[dim]💡 Use --list-personas to see available options[/dim]")
+        console.print("[bold]🤖 Vanilla Models (alternative):[/bold]")
+        console.print("[cyan]Standard models:[/cyan] --critique-models claude-4-sonnet,gpt-4o")
+        console.print()
+        console.print("[dim]💡 Use --list-personas to see all available options[/dim]")
         return False
     
     # Validate personas-model usage
     if personas_model and not personas:
         console.print("[red]❌ Error: --personas-model can only be used with --personas[/red]")
         console.print()
-        console.print("[bold]Correct usage:[/bold]")
-        console.print("[cyan]--personas ray_dalio,steve_jobs --personas-model o1[/cyan]")
-        console.print("[cyan]--personas all --personas-model o1[/cyan]")
+        console.print("[bold]Correct usage with global model override:[/bold]")
+        console.print("[cyan]Specific personas:[/cyan] --personas ray_dalio,steve_jobs --personas-model o3-mini")
+        console.print("[cyan]All personas:[/cyan] --personas all --personas-model o3-mini")
+        console.print()
+        console.print("[bold]Alternative (no global override):[/bold]")
+        console.print("[cyan]Use preferred models:[/cyan] --personas ray_dalio,steve_jobs")
+        console.print("[cyan]Vanilla models:[/cyan] --critique-models gpt-4o,claude-4-sonnet")
         return False
     
     # Validate that --personas all requires --personas-model
     if personas and personas.strip().lower() == "all" and not personas_model:
         console.print("[red]❌ Error: When using --personas all, you must specify --personas-model[/red]")
         console.print()
-        console.print("[bold]Correct usage:[/bold]")
-        console.print("[cyan]--personas all --personas-model o1[/cyan]")
-        console.print("[cyan]--personas all --personas-model gpt-4o[/cyan]")
+        console.print("[bold]Required for 'all' personas:[/bold]")
+        console.print("[cyan]All personas with model:[/cyan] --personas all --personas-model o3-mini")
+        console.print("[cyan]All personas with model:[/cyan] --personas all --personas-model gpt-4o")
+        console.print()
+        console.print("[bold]Alternative (specific personas):[/bold]")
+        console.print("[cyan]Use persona defaults:[/cyan] --personas ray_dalio,steve_jobs")
+        console.print("[cyan]Override persona models:[/cyan] --personas ray_dalio,steve_jobs --personas-model o3-mini")
         console.print()
         console.print("[dim]💡 Use --list-models to see available models[/dim]")
         return False
@@ -466,6 +498,44 @@ def print_debug_info(debug: bool, **kwargs):
         else:
             console.print(f"[dim]DEBUG {key}: {value}[/dim]")
 
+def _make_json_serializable(obj):
+    """Convert complex objects to JSON-serializable format."""
+    from .core.personas import CritiqueResult, PersonaConfig, PersonaType
+    from datetime import datetime
+    import uuid
+    
+    if isinstance(obj, CritiqueResult):
+        return obj.to_dict()
+    elif isinstance(obj, PersonaConfig):
+        return {
+            "name": obj.name,
+            "persona_type": obj.persona_type.value,
+            "description": obj.description,
+            "preferred_model": obj.preferred_model,
+            "temperature": obj.temperature,
+            "max_tokens": obj.max_tokens
+        }
+    elif isinstance(obj, PersonaType):
+        return obj.value
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, uuid.UUID):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {key: _make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [_make_json_serializable(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return [_make_json_serializable(item) for item in obj]
+    elif isinstance(obj, set):
+        return [_make_json_serializable(item) for item in obj]
+    elif hasattr(obj, '__dict__'):
+        # Handle other objects with __dict__ by converting to dict
+        return _make_json_serializable(obj.__dict__)
+    else:
+        # Return as-is for basic types (str, int, float, bool, None)
+        return obj
+
 @click.command()
 @click.argument('prompt', required=False)
 @click.option('-f', '--file', help='Read prompt from file')
@@ -506,15 +576,64 @@ def cli(
 ):
     """Multi-LLM critique and synthesis tool with creator-critic iteration.
     
-    REQUIREMENTS:
-      Either provide personas/models via CLI arguments:
-        --creator-persona PERSONA --personas PERSONA1,PERSONA2
-        --creator-persona MODEL --critique-models MODEL1,MODEL2
-      
-      Or create a config.yaml file with default models:
-        See config.yaml.example for template
+    🎭 EXPERT PERSONAS vs 🤖 VANILLA MODELS:
     
-    Use --list-personas to see all expert personas and --list-models for supported AI models.
+    • Expert personas (steve_jobs, ray_dalio, etc.): Rich personality, expertise, thinking patterns
+    • Vanilla models (gpt-4o, claude-4-sonnet, etc.): Standard AI models without personality
+    
+    📋 USAGE PATTERNS:
+    
+    1️⃣ EXPERT CREATOR + EXPERT CRITICS:
+       python -m llm_critique.main "Your prompt" \\
+         --creator-persona elon_musk \\
+         --personas steve_jobs,ray_dalio
+    
+    2️⃣ EXPERT CREATOR + EXPERT CRITICS (with global model override):
+       python -m llm_critique.main "Your prompt" \\
+         --creator-persona elon_musk \\
+         --personas steve_jobs,ray_dalio \\
+         --personas-model o3-mini
+    
+    3️⃣ EXPERT CREATOR + VANILLA CRITICS:
+       python -m llm_critique.main "Your prompt" \\
+         --creator-persona steve_jobs \\
+         --critique-models gpt-4o,claude-4-sonnet
+    
+    4️⃣ VANILLA CREATOR + EXPERT CRITICS:
+       python -m llm_critique.main "Your prompt" \\
+         --creator-persona gpt-4o \\
+         --personas ray_dalio,warren_buffett \\
+         --personas-model claude-4-sonnet
+    
+    5️⃣ VANILLA CREATOR + VANILLA CRITICS:
+       python -m llm_critique.main "Your prompt" \\
+         --creator-persona gpt-4o \\
+         --critique-models claude-4-sonnet,gemini-pro
+    
+    6️⃣ ALL EXPERT PERSONAS (with required global model):
+       python -m llm_critique.main "Your prompt" \\
+         --creator-persona elon_musk \\
+         --personas all \\
+         --personas-model o3-mini
+    
+    🔧 KEY RULES:
+    
+    • --personas and --critique-models are MUTUALLY EXCLUSIVE
+    • --personas-model ONLY works with --personas (overrides ALL persona models)
+    • --personas all REQUIRES --personas-model
+    • Expert personas have built-in preferred models (can be overridden)
+    • Vanilla models work as-is
+    
+    📖 DISCOVERY COMMANDS:
+    
+    --list-personas     # See all expert personas and vanilla models
+    --list-models       # See all supported AI models  
+    --persona-info NAME # Detailed info about a specific persona
+    --est-cost          # Estimate cost before running
+    
+    🎯 QUICK START:
+    
+    python -m llm_critique.main "Design a mobile app" --creator-persona steve_jobs --personas ray_dalio
     """
     
     async def run_async():
@@ -605,23 +724,30 @@ def cli(
                     console.print()
                     console.print(Panel.fit(
                         "[bold red]❌ Critique Configuration Required[/bold red]\n\n"
-                        "[bold]You need to specify critics in one of these ways:[/bold]\n\n"
-                        "[cyan]Option 1: Expert Personas[/cyan]\n"
-                        "python -m llm_critique.main 'Your prompt' \\\n"
-                        "  --personas ray_dalio,steve_jobs\n\n"
-                        "[cyan]Option 2: Mixed Persona Creation[/cyan]\n"
-                        "python -m llm_critique.main 'Your prompt' \\\n"
-                        "  --creator-persona steve_jobs --personas ray_dalio,warren_buffett\n\n"
-                        "[cyan]Option 3: Vanilla Models[/cyan]\n"
-                        "python -m llm_critique.main 'Your prompt' \\\n"
-                        "  --creator-persona gpt-4o --critique-models claude-4-sonnet,gpt-4o\n\n"
-                        "[cyan]Option 4: Config File[/cyan]\n"
-                        "1. Copy template: [dim]cp config.yaml.example config.yaml[/dim]\n"
-                        "2. Edit config.yaml with your preferred critics\n"
-                        "3. Run: [dim]python -m llm_critique.main 'Your prompt'[/dim]\n\n"
-                        "[cyan]Option 5: Check Available Options[/cyan]\n"
-                        "python -m llm_critique.main --list-personas",
-                        title="[bold red]Setup Required[/bold red]",
+                        "[bold]🎭 EXPERT PERSONAS (rich personality & expertise):[/bold]\n"
+                        "[cyan]Basic expert setup:[/cyan] --creator-persona elon_musk --personas steve_jobs,ray_dalio\n"
+                        "[cyan]All personas:[/cyan] --creator-persona elon_musk --personas all --personas-model o3-mini\n"
+                        "[cyan]Model override:[/cyan] --creator-persona steve_jobs --personas ray_dalio --personas-model claude-4-sonnet\n\n"
+                        
+                        "[bold]🤖 VANILLA MODELS (standard AI without personality):[/bold]\n"
+                        "[cyan]Basic vanilla setup:[/cyan] --creator-persona gpt-4o --critique-models claude-4-sonnet,gemini-pro\n"
+                        "[cyan]Mixed approach:[/cyan] --creator-persona steve_jobs --critique-models gpt-4o,claude-4-sonnet\n\n"
+                        
+                        "[bold]🔧 KEY RULES:[/bold]\n"
+                        "• --personas and --critique-models are mutually exclusive\n"
+                        "• --personas-model only works with --personas (overrides all)\n"
+                        "• --personas all requires --personas-model\n\n"
+                        
+                        "[bold]📖 DISCOVERY:[/bold]\n"
+                        "[cyan]See options:[/cyan] --list-personas --list-models\n"
+                        "[cyan]Get details:[/cyan] --persona-info steve_jobs\n"
+                        "[cyan]Estimate cost:[/cyan] --est-cost\n\n"
+                        
+                        "[bold]📄 CONFIG FILE (alternative):[/bold]\n"
+                        "1. Copy: [dim]cp config.yaml.example config.yaml[/dim]\n"
+                        "2. Edit config.yaml with preferred models\n"
+                        "3. Run: [dim]python -m llm_critique.main 'Your prompt'[/dim]",
+                        title="[bold red]Usage Guide[/bold red]",
                         border_style="red"
                     ))
                     console.print()
@@ -665,7 +791,7 @@ def cli(
                     console.print(f"Available models: {', '.join(available_models)}")
                     return
                 
-                validation_result = persona_manager.validate_persona_combination(requested_personas)
+                validation_result = persona_manager.validate_persona_combination(requested_personas, global_model_override=personas_model)
                 
                 if not validation_result["valid"]:
                     console.print("[red]❌ Persona validation failed:[/red]")
@@ -680,14 +806,9 @@ def cli(
                 # Create critics from personas
                 for persona_name in requested_personas:
                     try:
-                        persona_config = persona_manager.get_persona(persona_name)
-                        
-                        # Override the preferred model if personas_model is specified
-                        if personas_model:
-                            # Create a copy of the persona config with the global model
-                            import copy
-                            persona_config = copy.deepcopy(persona_config)
-                            persona_config.preferred_model = personas_model
+                        # Use the model_override parameter to avoid warnings
+                        model_override = personas_model if has_cli_personas else None
+                        persona_config = persona_manager.get_persona(persona_name, model_override=model_override)
                         
                         critics_to_use.append({
                             "name": persona_config.name,
@@ -735,19 +856,26 @@ def cli(
                         return
             
             # Set creator persona - new unified approach
-            creator_config = None
+            creator_info = {}
             if has_explicit_creator:
                 try:
-                    # Try to get as persona first (expert or vanilla)
-                    creator_config = persona_manager.get_persona(creator_persona)
-                    creator_model = creator_config.preferred_model
-                    
-                    if creator_model not in available_models:
-                        console.print(f"[red]Error: Creator persona '{creator_persona}' prefers unavailable model '{creator_model}'[/red]")
+                    # Apply personas_model override to creator if using personas mode
+                    model_override = personas_model if has_cli_personas else None
+                    creator_persona_obj = persona_manager.get_persona(creator_persona, model_override=model_override)
+                    if creator_persona_obj.preferred_model not in available_models:
+                        console.print(f"[red]Error: Creator persona '{creator_persona}' prefers unavailable model '{creator_persona_obj.preferred_model}'[/red]")
                         console.print(f"Available models: {', '.join(available_models)}")
                         return
                         
-                    console.print(f"[cyan]🎨 Creator: {creator_config.name} ({creator_config.persona_type.value}) → {creator_model}[/cyan]")
+                    console.print(f"[cyan]🎨 Creator: {creator_persona_obj.name} ({creator_persona_obj.persona_type.value}) → {creator_persona_obj.preferred_model}[/cyan]")
+                    
+                    creator_info = {
+                        "name": creator_persona_obj.name,
+                        "type": creator_persona_obj.persona_type.value,
+                        "model": creator_persona_obj.preferred_model,
+                        "context_tokens": creator_persona_obj.get_prompt_context_size_estimate(),
+                        "temperature": creator_persona_obj.temperature
+                    }
                     
                 except ValueError:
                     console.print(f"[red]Error: Unknown creator persona or model '{creator_persona}'[/red]")
@@ -770,16 +898,23 @@ def cli(
                 
                 # Create vanilla persona for the creator model
                 try:
-                    creator_config = persona_manager.create_vanilla_persona(creator_model)
+                    creator_persona_obj = persona_manager.create_vanilla_persona(creator_model)
+                    creator_info = {
+                        "name": creator_model,
+                        "type": "vanilla",
+                        "model": creator_model,
+                        "context_tokens": 50,
+                        "temperature": 0.1
+                    }
                 except Exception as e:
                     console.print(f"[red]Error creating creator persona for '{creator_model}': {e}[/red]")
                     return
             
             print_debug_info(debug, 
                 critics_to_use=[c["name"] for c in critics_to_use],
-                creator_persona=creator_config.name,
-                creator_model=creator_config.preferred_model,
-                creator_type=creator_config.persona_type.value,
+                creator_persona=creator_info["name"],
+                creator_model=creator_info["model"],
+                creator_type=creator_info["type"],
                 iterations=iterations,
                 using_personas=has_cli_personas
             )
@@ -787,13 +922,16 @@ def cli(
             # Save conversation start
             conversation_manager = ConversationManager() if listen else None
             if conversation_manager:
-                conversation_manager.record_step("conversation_start", {
-                    "prompt": prompt,
-                    "critics": [c["name"] for c in critics_to_use],
-                    "creator": creator_config.name,
-                    "creator_type": creator_config.persona_type.value,
-                    "mode": "personas" if has_cli_personas else "vanilla"
-                })
+                # Properly initialize the conversation recording
+                creator_name = creator_info["name"] if creator_info else creator_model
+                critic_names = [c["name"] for c in critics_to_use] if critics_to_use else []
+                
+                conversation_manager.start_recording(
+                    prompt=prompt,
+                    models=critic_names,
+                    creator_model=creator_model,
+                    creator_persona=creator_name
+                )
             
             # Initialize LLM client and synthesizer
             llm_client = LLMClient(config_obj)
@@ -811,31 +949,96 @@ def cli(
             results = await synthesizer.synthesize_with_personas(
                 prompt=prompt,
                 persona_configs=[c["config"] for c in critics_to_use],
-                creator_persona=creator_config,  # Pass full creator persona
+                creator_persona=creator_persona_obj,  # Pass the PersonaConfig object, not the info dict
                 output_format=format
             )
             
             # Record model responses
             if conversation_manager:
-                conversation_manager.record_step("workflow_complete", {
-                    "workflow_results": results["results"]["workflow_results"],
-                    "final_answer": results["results"]["final_answer"],
-                    "confidence_score": results["results"]["confidence_score"]
-                })
+                # Extract data for rich recording
+                workflow_results = results["results"]["workflow_results"]
+                input_info = results["input"]
+                performance = results["performance"]
+                quality_metrics = results["quality_metrics"]
+                
+                # Record iteration header
+                conversation_manager.record_iteration_start(
+                    total_iterations=results["results"]["total_iterations"],
+                    convergence=results["results"]["convergence_achieved"],
+                    creator_model=input_info["creator_model"],
+                    critic_models=input_info["personas"]
+                )
+                
+                # Record each iteration
+                for iteration in workflow_results["iterations"]:
+                    # Extract creator data
+                    creator_response = iteration["creator_response"]
+                    
+                    # Extract critics feedback in the expected format
+                    critics_feedback = []
+                    for critique in iteration["persona_critiques"]:
+                        feedback_dict = {
+                            "persona_name": critique.persona_name,  # Add persona name
+                            "persona_type": critique.persona_type.value,  # Add persona type for icon
+                            "quality_score": critique.quality_score,
+                            "strengths": critique.key_insights[:2] if critique.key_insights else [],
+                            "improvements": critique.recommendations[:2] if critique.recommendations else [],
+                            "decision": "Stop" if critique.quality_score >= 0.8 else "Continue",
+                            "detailed_feedback": critique.critique_text
+                        }
+                        critics_feedback.append(feedback_dict)
+                    
+                    # Record this iteration
+                    conversation_manager.record_iteration(
+                        iteration_num=iteration["iteration_num"],
+                        creator_output=creator_response["content"],
+                        creator_confidence=80.0,  # Default confidence
+                        creator_model=creator_response["model"],
+                        critics_feedback=critics_feedback
+                    )
+                
+                # Record final results
+                conversation_manager.record_final_results(
+                    final_answer=results["results"]["final_answer"],
+                    confidence=quality_metrics["average_confidence"] * 100,
+                    quality=quality_metrics.get("persona_consensus", 0.85) * 100,
+                    duration=performance["total_duration_ms"] / 1000,
+                    cost=performance["estimated_cost_usd"],
+                    execution_id=results["execution_id"],
+                    models_used=input_info["personas"],
+                    creator_model=input_info["creator_model"]
+                )
             
             # Save conversation
             if listen and conversation_manager:
-                conversation_manager.save_conversation(listen)
+                try:
+                    conversation_manager.save_conversation(listen)
+                except Exception as conv_error:
+                    console.print(f"[yellow]Warning: Could not save conversation: {conv_error}[/yellow]")
+                    if debug:
+                        console.print(f"[dim]Conversation save error details: {traceback.format_exc()}[/dim]")
 
             # Return JSON output if requested
             if format == "json":
-                print(json.dumps(results, indent=2))
+                # Ensure JSON output is also serializable
+                try:
+                    json_output = _make_json_serializable(results)
+                    print(json.dumps(json_output, indent=2))
+                except Exception as json_error:
+                    console.print(f"[red]Error serializing JSON output: {json_error}[/red]")
+                    # Fallback to basic results
+                    basic_results = {
+                        "execution_id": str(results.get("execution_id", "unknown")),
+                        "final_answer": results.get("results", {}).get("final_answer", "Error serializing results"),
+                        "error": "JSON serialization failed"
+                    }
+                    print(json.dumps(basic_results, indent=2))
             
             # Log successful execution - simplified for compatibility
             if debug:
                 console.print(f"[dim]Execution ID: {execution_id}[/dim]")
                 console.print(f"[dim]Critics used: {[c['name'] for c in critics_to_use]}[/dim]")
-                console.print(f"[dim]Creator: {creator_config.name} ({creator_config.persona_type.value})[/dim]")
+                console.print(f"[dim]Creator: {creator_info['name']} ({creator_info['type']})[/dim]")
                 console.print(f"[dim]Mode: {'personas' if has_cli_personas else 'vanilla'}[/dim]")
 
         except Exception as e:
@@ -1025,18 +1228,63 @@ def estimate_workflow_cost(prompt: Optional[str], file: Optional[str], creator_m
         console.print(cost_table)
         console.print()
         
-        # Summary
+        # Prominent total cost display
+        console.print(Panel.fit(
+            f"[bold green]💰 ESTIMATED TOTAL COST: ${total_cost:.4f}[/bold green]",
+            border_style="green"
+        ))
+        console.print()
+        
+        # Enhanced summary for creator persona mode
+        creator_benefits = ""
+        if creator_model in available_models:
+            creator_benefits = f"\n[bold]🎭 Expert Creator Benefits:[/bold]\n" \
+                              f"• Authentic voice and perspective from {creator_model}\n" \
+                              f"• Domain-specific insights and communication style\n" \
+                              f"• Rich context with {input_tokens:,} input tokens\n" \
+                              f"• Consistent character throughout iterations\n"
+        else:
+            creator_benefits = f"\n[bold]🤖 Vanilla Creator Benefits:[/bold]\n" \
+                              f"• General-purpose content generation\n" \
+                              f"• Low context overhead for cost efficiency\n" \
+                              f"• Reliable, professional output\n"
+        
+        mode_benefits = ""
+        if has_cli_models:
+            mode_benefits = f"\n[bold]🧠 Expert Critics Benefits:[/bold]\n" \
+                           f"• Specialized domain knowledge and critique perspectives\n" \
+                           f"• Advanced consensus analysis and conflict detection\n" \
+                           f"• Rich feedback with {sum(input_tokens for _ in range(iterations)) - input_tokens:,} critic input tokens\n"
+        else:
+            mode_benefits = f"\n[bold]🤖 Vanilla Critics Benefits:[/bold]\n" \
+                           f"• Fast, general-purpose AI critique\n" \
+                           f"• Multiple model perspectives for balanced feedback\n"
+        
         console.print(Panel.fit(
             f"[bold]Estimated Total Cost: ${total_cost:.4f}[/bold]\n\n"
-            f"[dim]Breakdown:[/dim]\n" + 
-            "\n".join(f"• {item}" for item in cost_breakdown[:8]) +  # Show first 8 items
-            (f"\n• ... and {len(cost_breakdown) - 8} more" if len(cost_breakdown) > 8 else "") +
-            f"\n\n[dim]💡 This is an estimate. Actual costs may vary based on:\n"
+            f"[dim]Top cost components:[/dim]\n" + 
+            "\n".join(f"• {item}" for item in cost_breakdown[:6]) +  # Show first 6 items
+            (f"\n• ... and {len(cost_breakdown) - 6} more" if len(cost_breakdown) > 6 else "") +
+            creator_benefits + mode_benefits +
+            f"\n[dim]💡 This is an estimate. Actual costs may vary based on:\n"
             f"• Actual response lengths from models\n"
             f"• Model-specific tokenization differences\n"
-            f"• API pricing changes[/dim]",
+            f"• API pricing changes\n"
+            f"• Convergence achieved before max iterations[/dim]",
             title="[bold green]Cost Summary[/bold green]",
             border_style="green"
+        ))
+        console.print()
+        
+        # Show optimization tips
+        console.print(Panel.fit(
+            f"[bold]💡 Creator Persona Optimization Tips:[/bold]\n"
+            f"• Expert creators: Rich, authentic content but higher token costs\n"
+            f"• Vanilla creators: Cost-efficient, reliable general content\n"
+            f"• Mix modes: Expert creator + vanilla critics for balanced approach\n"
+            f"• Consider creator-critic personality dynamics for best results",
+            title="[bold yellow]Optimization Suggestions[/bold yellow]",
+            border_style="yellow"
         ))
         console.print()
         
@@ -1108,7 +1356,7 @@ def estimate_workflow_cost_with_personas(
                 console.print(f"Available models: {', '.join(available_models)}")
                 return
             
-            validation_result = persona_manager.validate_persona_combination(requested_personas)
+            validation_result = persona_manager.validate_persona_combination(requested_personas, global_model_override=personas_model)
             
             if not validation_result["valid"]:
                 console.print("[red]❌ Persona validation failed for cost estimation:[/red]")
@@ -1119,15 +1367,12 @@ def estimate_workflow_cost_with_personas(
             # Get persona configurations
             for persona_name in requested_personas:
                 try:
-                    persona_config = persona_manager.get_persona(persona_name)
-                    
-                    # Use global personas_model if specified, otherwise use persona's preferred model
-                    effective_model = personas_model if personas_model else persona_config.preferred_model
+                    persona_config = persona_manager.get_persona(persona_name, model_override=personas_model)
                     
                     critics_info.append({
                         "name": persona_config.name,
                         "type": persona_config.persona_type.value,
-                        "model": effective_model,
+                        "model": persona_config.preferred_model,
                         "context_tokens": persona_config.get_prompt_context_size_estimate(),
                         "temperature": persona_config.temperature
                     })
@@ -1178,18 +1423,20 @@ def estimate_workflow_cost_with_personas(
         creator_info = {}
         if creator_persona:
             try:
-                creator_config = persona_manager.get_persona(creator_persona)
-                if creator_config.preferred_model not in available_models:
-                    console.print(f"[red]Error: Creator persona '{creator_persona}' prefers unavailable model '{creator_config.preferred_model}'[/red]")
+                # Apply personas_model override to creator if using personas mode
+                model_override = personas_model if has_cli_personas else None
+                creator_persona_obj = persona_manager.get_persona(creator_persona, model_override=model_override)
+                if creator_persona_obj.preferred_model not in available_models:
+                    console.print(f"[red]Error: Creator persona '{creator_persona}' prefers unavailable model '{creator_persona_obj.preferred_model}'[/red]")
                     console.print(f"Available models: {', '.join(available_models)}")
                     return
                 
                 creator_info = {
-                    "name": creator_config.name,
-                    "type": creator_config.persona_type.value,
-                    "model": creator_config.preferred_model,
-                    "context_tokens": creator_config.get_prompt_context_size_estimate(),
-                    "temperature": creator_config.temperature
+                    "name": creator_persona_obj.name,
+                    "type": creator_persona_obj.persona_type.value,
+                    "model": creator_persona_obj.preferred_model,
+                    "context_tokens": creator_persona_obj.get_prompt_context_size_estimate(),
+                    "temperature": creator_persona_obj.temperature
                 }
                 
             except ValueError:
@@ -1322,6 +1569,13 @@ def estimate_workflow_cost_with_personas(
                 cost_breakdown.append(f"Critic {critic_name} iter {iteration}: ${critic_cost:.4f}")
         
         console.print(cost_table)
+        console.print()
+        
+        # Prominent total cost display
+        console.print(Panel.fit(
+            f"[bold green]💰 ESTIMATED TOTAL COST: ${total_cost:.4f}[/bold green]",
+            border_style="green"
+        ))
         console.print()
         
         # Enhanced summary for creator persona mode

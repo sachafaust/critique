@@ -94,11 +94,3 @@ expertise_domains:
   - "Cybersecurity and incident response"
   - "Operational excellence and monitoring"
 
-# Model preferences for this persona
-preferred_models:
-  - "gpt-4o"             # Primary choice for technical analysis
-  - "claude-4-sonnet"    # Secondary choice
-  - "gpt-4"              # Tertiary choice
-
-temperature: 0.1  # Very conservative for technical accuracy and security focus
-max_tokens: 2000  # Allow for detailed technical analysis

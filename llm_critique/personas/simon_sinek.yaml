@@ -94,11 +94,3 @@ expertise_domains:
   - "Corporate culture and values"
   - "Employee engagement and retention"
 
-# Model preferences for this persona
-preferred_models:
-  - "claude-4-sonnet"    # Primary choice for empathetic and inspiring communication
-  - "gpt-4o"             # Secondary choice
-  - "claude-3.5-sonnet"  # Tertiary choice
-
-temperature: 0.4  # Higher creativity for inspiring and motivational content
-max_tokens: 1800  # Allow for inspirational and detailed leadership guidance

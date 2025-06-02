@@ -180,8 +180,9 @@ class UnifiedPersonaManager:
         
         if os.getenv("GOOGLE_API_KEY"):
             available.extend([
-                "gemini-2.5-pro", "gemini-2.5-flash",
-                "gemini-2.0-flash", "gemini-pro", "gemini-1.0-pro"
+                "gemini-2.5-flash-preview-05-20", "gemini-2.5-pro-preview-05-06",
+                "gemini-2.0-flash", "gemini-2.0-flash-lite",
+                "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"
             ])
         
         self._available_models = available
@@ -202,12 +203,19 @@ class UnifiedPersonaManager:
             except Exception as e:
                 logger.warning(f"Error discovering persona {yaml_file}: {e}")
 
-    def load_expert_persona(self, name: str) -> PersonaConfig:
+    def load_expert_persona(self, name: str, suppress_warnings: bool = False) -> PersonaConfig:
         """Load rich persona from YAML file with caching."""
-        # Check cache first
+        # Check cache first - only return if persona is actually loaded (not None)
         if name in self._expert_persona_cache and self._expert_persona_cache[name] is not None:
             logger.debug(f"Returning cached expert persona: {name}")
-            return self._expert_persona_cache[name]
+            persona = self._expert_persona_cache[name]
+            # Still need to check model availability for cached personas
+            if persona.preferred_model and persona.preferred_model not in self._available_models:
+                if not suppress_warnings:
+                    logger.warning(f"Expert persona '{name}' prefers unavailable model '{persona.preferred_model}', "
+                                  f"using fallback")
+                persona.preferred_model = self._get_fallback_model()
+            return persona
         
         # Find YAML file
         yaml_file = self.personas_dir / f"{name}.yaml"
@@ -236,17 +244,19 @@ class UnifiedPersonaManager:
                 red_flags=data.get('red_flags', []),
                 success_indicators=data.get('success_indicators', []),
                 expertise_domains=data.get('expertise_domains', []),
-                preferred_model=data.get('preferred_models', [None])[0] if data.get('preferred_models') else "",
-                temperature=data.get('temperature', 0.2),
-                max_tokens=data.get('max_tokens', 1500),
+                # LLM settings set to sensible defaults - not read from YAML
+                preferred_model=self._get_default_expert_model(),  # Set default expert model
+                temperature=0.2,     # Balanced creativity for expert personas
+                max_tokens=1500,     # Standard length for detailed analysis
                 file_path=str(yaml_file),
                 is_cached=True
             )
             
             # Validate that preferred model is available
             if persona.preferred_model and persona.preferred_model not in self._available_models:
-                logger.warning(f"Expert persona '{name}' prefers unavailable model '{persona.preferred_model}', "
-                              f"using fallback")
+                if not suppress_warnings:
+                    logger.warning(f"Expert persona '{name}' prefers unavailable model '{persona.preferred_model}', "
+                                  f"using fallback")
                 persona.preferred_model = self._get_fallback_model()
             
             # Cache the loaded persona
@@ -297,7 +307,7 @@ class UnifiedPersonaManager:
         """
         # Check if it's an expert persona first
         if name in self._expert_persona_cache or self._is_expert_persona_available(name):
-            persona = self.load_expert_persona(name)
+            persona = self.load_expert_persona(name, suppress_warnings=bool(model_override))
             if model_override and model_override in self._available_models:
                 # Clone persona with model override
                 import copy
@@ -333,6 +343,22 @@ class UnifiedPersonaManager:
         # Default fallback priority
         fallback_priority = ["claude-4-sonnet", "gpt-4o", "claude-3.5-sonnet", "gpt-4o-mini"]
         for model in fallback_priority:
+            if model in self._available_models:
+                return model
+        
+        # Return first available model if no priority matches
+        return self._available_models[0] if self._available_models else ""
+
+    def _get_default_expert_model(self) -> str:
+        """Get default model for expert personas."""
+        if self.config_obj and hasattr(self.config_obj, 'default_expert_model'):
+            default_model = self.config_obj.default_expert_model
+            if default_model in self._available_models:
+                return default_model
+        
+        # Default fallback priority for expert personas (favor reasoning models)
+        default_priority = ["claude-4-sonnet", "gpt-4o", "claude-3.5-sonnet", "gpt-4o-mini"]
+        for model in default_priority:
             if model in self._available_models:
                 return model
         
@@ -390,7 +416,7 @@ class UnifiedPersonaManager:
         except Exception as e:
             raise ValueError(f"Could not get info for persona '{name}': {e}")
 
-    def validate_persona_combination(self, persona_names: List[str]) -> Dict[str, Any]:
+    def validate_persona_combination(self, persona_names: List[str], global_model_override: Optional[str] = None) -> Dict[str, Any]:
         """Validate a combination of personas and return analysis."""
         validation_result = {
             "valid": True,
@@ -403,7 +429,7 @@ class UnifiedPersonaManager:
         
         for name in persona_names:
             try:
-                persona = self.get_persona(name)
+                persona = self.get_persona(name, model_override=global_model_override)
                 context_tokens = persona.get_prompt_context_size_estimate()
                 
                 validation_result["personas"].append({

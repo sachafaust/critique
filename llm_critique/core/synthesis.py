@@ -847,10 +847,16 @@ Provide an improved response that:
         if persona_analysis["conflicting_perspectives"]:
             console.print("\n⚡ [bold]CONFLICTING PERSPECTIVES[/bold]", style="yellow")
             for conflict in persona_analysis["conflicting_perspectives"][:2]:
-                persona1 = conflict["persona1"]
-                persona2 = conflict["persona2"]
-                issue = conflict["issue"]
-                console.print(f"  • {persona1} vs {persona2}: {issue}")
+                if conflict["type"] == "quality_assessment":
+                    high_personas = ", ".join(conflict["high_assessment"])
+                    low_personas = ", ".join(conflict["low_assessment"])
+                    score_range = conflict["score_range"]
+                    console.print(f"  • Quality Assessment Disagreement (range: {score_range:.1%})")
+                    console.print(f"    High scorers: {high_personas}")
+                    console.print(f"    Low scorers: {low_personas}")
+                else:
+                    # Handle other conflict types if they exist
+                    console.print(f"  • {conflict.get('description', 'Unknown conflict type')}")
         
         if persona_analysis["weighted_recommendations"]:
             console.print("\n💡 [bold]TOP RECOMMENDATIONS[/bold]", style="blue")

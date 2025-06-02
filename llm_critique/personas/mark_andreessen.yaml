@@ -93,11 +93,3 @@ expertise_domains:
   - "Business model design"
   - "Entrepreneurship and company building"
 
-# Model preferences for this persona
-preferred_models:
-  - "gpt-4o"             # Primary choice for market and technology analysis
-  - "claude-4-sonnet"    # Secondary choice
-  - "gpt-4"              # Tertiary choice
-
-temperature: 0.2  # Analytical but with some creativity for market insights
-max_tokens: 1800  # Focused venture capital analysis

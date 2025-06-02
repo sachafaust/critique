@@ -84,11 +84,3 @@ expertise_domains:
   - "Capital allocation decisions"
   - "Risk assessment and management"
 
-# Model preferences for this persona
-preferred_models:
-  - "claude-4-sonnet"    # Primary for analytical thinking
-  - "gpt-4o"             # Secondary choice
-  - "claude-3.5-sonnet"  # Tertiary choice
-
-temperature: 0.15  # Conservative and analytical
-max_tokens: 1800   # Thorough but focused analysis 

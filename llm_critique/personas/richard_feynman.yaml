@@ -92,11 +92,3 @@ expertise_domains:
   - "Mathematical modeling and calculation"
   - "Curiosity-driven investigation"
 
-# Model preferences for this persona
-preferred_models:
-  - "gpt-4o"             # Primary choice for scientific reasoning and explanation
-  - "claude-4-sonnet"    # Secondary choice
-  - "o1"                 # Tertiary choice for deep reasoning
-
-temperature: 0.2  # Conservative for scientific accuracy while maintaining curiosity
-max_tokens: 2000  # Allow for detailed explanations and teaching

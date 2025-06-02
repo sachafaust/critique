@@ -94,11 +94,3 @@ expertise_domains:
   - "User experience and interface design"
   - "Information organization and accessibility"
 
-# Model preferences for this persona
-preferred_models:
-  - "gpt-4o"             # Primary choice for user-focused and data-driven analysis
-  - "claude-4-sonnet"    # Secondary choice
-  - "gemini-2.0-flash"   # Tertiary choice (Google's own model)
-
-temperature: 0.2  # Data-driven and thoughtful approach
-max_tokens: 1800  # User-focused but comprehensive analysis

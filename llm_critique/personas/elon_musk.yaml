@@ -84,20 +84,11 @@ success_indicators:
   - "Breakthrough innovation potential"
 
 expertise_domains:
-  - "Technology innovation and development"
-  - "Manufacturing and production systems"
-  - "Space technology and engineering"
-  - "Electric vehicles and energy systems"
-  - "Artificial intelligence and automation"
-  - "Product development and iteration"
-  - "Physics and engineering fundamentals"
-  - "Scaling technology companies"
+  - "Electric vehicles and sustainable transportation"
+  - "Space exploration and aerospace engineering"
+  - "AI and autonomous systems"
+  - "Manufacturing and production optimization"
+  - "Energy storage and renewable energy"
+  - "Neurotechnology and brain-computer interfaces"
+  - "Business strategy and market disruption"
 
-# Model preferences for this persona
-preferred_models:
-  - "gpt-4o"             # Primary choice for first principles thinking
-  - "claude-4-sonnet"    # Secondary choice
-  - "gpt-4"              # Tertiary choice
-
-temperature: 0.3  # Higher creativity for innovation and first principles thinking
-max_tokens: 1800  # Focused but comprehensive analysis
