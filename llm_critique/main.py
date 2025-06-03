@@ -1618,7 +1618,7 @@ def estimate_workflow_cost_with_personas(
                 f"Creator (Iteration {iteration})",
                 creator_type_display,
                 f"{total_input_tokens:,} in + {creator_output_tokens_per_iteration:,} out",
-                f"${llm_client.estimate_cost(creator_info["model"], 1000):.4f}",
+                f"${llm_client.estimate_cost(creator_info['model'], 1000):.4f}",
                 f"${iteration_creator_cost:.4f}"
             )
             
