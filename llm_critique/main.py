@@ -52,7 +52,93 @@ def get_available_models() -> List[str]:
             "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"
         ])
     
+    if os.getenv("XAI_API_KEY"):
+        available.extend([
+            "grok-beta", "grok-3", "grok-3-mini", 
+            "grok-3-reasoning", "grok-3-mini-reasoning",
+            "grok-2"
+        ])
+    
     return available
+
+def get_model_provider_info(model_name: str) -> dict:
+    """Get provider information for a model, including setup instructions."""
+    provider_info = {
+        # OpenAI models
+        "gpt-4": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        "gpt-4o": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        "gpt-4o-mini": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        "o1": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        "o1-mini": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        "o3": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        "o3-mini": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        "gpt-3.5-turbo": {"provider": "OpenAI", "api_key": "OPENAI_API_KEY", "setup_url": "https://platform.openai.com/api-keys"},
+        
+        # Anthropic models
+        "claude-4-opus": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        "claude-4-sonnet": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        "claude-3.7-sonnet": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        "claude-3.5-sonnet": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        "claude-3.5-haiku": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        "claude-3-opus": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        "claude-3-sonnet": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        "claude-3-haiku": {"provider": "Anthropic", "api_key": "ANTHROPIC_API_KEY", "setup_url": "https://console.anthropic.com/"},
+        
+        # Google models
+        "gemini-2.5-flash-preview-05-20": {"provider": "Google", "api_key": "GOOGLE_API_KEY", "setup_url": "https://aistudio.google.com/app/apikey"},
+        "gemini-2.5-pro-preview-05-06": {"provider": "Google", "api_key": "GOOGLE_API_KEY", "setup_url": "https://aistudio.google.com/app/apikey"},
+        "gemini-2.0-flash": {"provider": "Google", "api_key": "GOOGLE_API_KEY", "setup_url": "https://aistudio.google.com/app/apikey"},
+        "gemini-2.0-flash-lite": {"provider": "Google", "api_key": "GOOGLE_API_KEY", "setup_url": "https://aistudio.google.com/app/apikey"},
+        "gemini-1.5-flash": {"provider": "Google", "api_key": "GOOGLE_API_KEY", "setup_url": "https://aistudio.google.com/app/apikey"},
+        "gemini-1.5-flash-8b": {"provider": "Google", "api_key": "GOOGLE_API_KEY", "setup_url": "https://aistudio.google.com/app/apikey"},
+        "gemini-1.5-pro": {"provider": "Google", "api_key": "GOOGLE_API_KEY", "setup_url": "https://aistudio.google.com/app/apikey"},
+        
+        # X AI models
+        "grok-beta": {"provider": "X AI", "api_key": "XAI_API_KEY", "setup_url": "https://console.x.ai/"},
+        "grok-3": {"provider": "X AI", "api_key": "XAI_API_KEY", "setup_url": "https://console.x.ai/"},
+        "grok-3-mini": {"provider": "X AI", "api_key": "XAI_API_KEY", "setup_url": "https://console.x.ai/"},
+        "grok-3-reasoning": {"provider": "X AI", "api_key": "XAI_API_KEY", "setup_url": "https://console.x.ai/"},
+        "grok-3-mini-reasoning": {"provider": "X AI", "api_key": "XAI_API_KEY", "setup_url": "https://console.x.ai/"},
+        "grok-2": {"provider": "X AI", "api_key": "XAI_API_KEY", "setup_url": "https://console.x.ai/"},
+    }
+    
+    return provider_info.get(model_name, {"provider": "Unknown", "api_key": "", "setup_url": ""})
+
+def display_helpful_model_error(model_name: str, available_models: List[str]):
+    """Display a helpful error message when a model is not available."""
+    provider_info = get_model_provider_info(model_name)
+    
+    if provider_info["provider"] != "Unknown":
+        console.print(f"[red]❌ Model '{model_name}' is not available[/red]")
+        console.print()
+        
+        # Check if API key is missing
+        api_key = provider_info["api_key"]
+        if api_key and not os.getenv(api_key):
+            console.print(f"[yellow]🔑 Missing API Key: {api_key}[/yellow]")
+            console.print(f"[dim]   Provider: {provider_info['provider']}[/dim]")
+            console.print(f"[dim]   Setup URL: {provider_info['setup_url']}[/dim]")
+            console.print()
+            console.print("[bold]💡 Quick Setup:[/bold]")
+            console.print(f"   1. Get your API key from: {provider_info['setup_url']}")
+            console.print(f"   2. Set environment variable:")
+            console.print(f"      [cyan]export {api_key}=your_api_key_here[/cyan]")
+            console.print(f"   3. Or add to .env file:")
+            console.print(f"      [cyan]echo \"{api_key}=your_api_key_here\" >> .env[/cyan]")
+            
+            # Show related available models from same provider
+            same_provider_models = [m for m in available_models 
+                                  if get_model_provider_info(m)["provider"] == provider_info["provider"]]
+            if same_provider_models:
+                console.print(f"\n[green]✅ Other {provider_info['provider']} models available:[/green] {', '.join(same_provider_models)}")
+        else:
+            console.print(f"[yellow]⚠️  Model may have limited access or require special permissions[/yellow]")
+            console.print(f"[dim]   Provider: {provider_info['provider']}[/dim]")
+    else:
+        console.print(f"[red]Error: Unknown model '{model_name}'[/red]")
+    
+    console.print(f"\n[cyan]📋 All available models: {', '.join(available_models)}[/cyan]")
+    console.print("\n[dim]💡 Use --list-models to see detailed model information[/dim]")
 
 def display_available_models():
     """Display all supported models with their details."""
@@ -99,7 +185,18 @@ def display_available_models():
                 ("gemini-1.5-pro", "Gemini 1.5 Pro", "Complex reasoning with 2M context", "$0.003"),
             ],
             "api_key": "GOOGLE_API_KEY"
-        }
+        },
+        "X AI Grok Models": {
+            "models": [
+                ("grok-beta", "Grok Beta", "Current production model with real-time X data", "$2.00/$10.00"),
+                ("grok-3", "Grok 3", "Latest flagship model with 131K context", "$3.00/$15.00"),
+                ("grok-3-mini", "Grok 3 Mini", "Faster, cost-efficient version", "$0.30/$0.50"),
+                ("grok-3-reasoning", "Grok 3 Reasoning", "Advanced reasoning with 'Think' mode", "$3.00/$15.00"),
+                ("grok-3-mini-reasoning", "Grok 3 Mini Reasoning", "Compact reasoning model", "$0.50/$1.00"),
+                ("grok-2", "Grok 2", "Previous generation model", "$2.00/$10.00"),
+            ],
+            "api_key": "XAI_API_KEY"
+        },
     }
     
     # Get available models
@@ -155,10 +252,12 @@ def display_available_models():
                 missing_api_keys.append("Anthropic")
             elif api_key_name == "GOOGLE_API_KEY":
                 missing_api_keys.append("Google")
+            elif api_key_name == "XAI_API_KEY":
+                missing_api_keys.append("X AI")
     
     # Build missing API keys message
     if missing_api_keys:
-        missing_msg = f"• Missing API keys: {', '.join(missing_api_keys)} ({len(missing_api_keys)} of 3)"
+        missing_msg = f"• Missing API keys: {', '.join(missing_api_keys)} ({len(missing_api_keys)} of 4)"
     else:
         missing_msg = "• Missing API keys: None (all providers available!)"
     
@@ -167,7 +266,7 @@ def display_available_models():
         f"• Total supported models: {total_models}\n"
         f"• Currently available: {available_count}\n"
         f"{missing_msg}\n\n"
-        f"[dim]💡 Set environment variables OPENAI_API_KEY, ANTHROPIC_API_KEY, and/or GOOGLE_API_KEY to unlock more models[/dim]",
+        f"[dim]💡 Set environment variables OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, and/or XAI_API_KEY to unlock more models[/dim]",
         title="[bold green]Model Availability[/bold green]",
         border_style="green"
     ))
@@ -236,6 +335,8 @@ def display_available_personas(config_obj=None):
                     model_type = "Anthropic"
                 elif "gemini" in model_name:
                     model_type = "Google"
+                elif "grok" in model_name:
+                    model_type = "X AI"
                 else:
                     model_type = "Unknown"
                 
@@ -579,61 +680,50 @@ def cli(
     🎭 EXPERT PERSONAS vs 🤖 VANILLA MODELS:
     
     • Expert personas (steve_jobs, ray_dalio, etc.): Rich personality, expertise, thinking patterns
-    • Vanilla models (gpt-4o, claude-4-sonnet, etc.): Standard AI models without personality
+    • Vanilla models (gpt-4o, claude-4-sonnet, grok-beta, etc.): Standard AI models without personality
     
     📋 USAGE PATTERNS:
     
     1️⃣ EXPERT CREATOR + EXPERT CRITICS:
-       python -m llm_critique.main "Your prompt" \\
-         --creator-persona elon_musk \\
-         --personas steve_jobs,ray_dalio
+    python -m llm_critique.main \"Your prompt\" \\
+      --creator-persona elon_musk \\
+      --personas steve_jobs,ray_dalio
     
     2️⃣ EXPERT CREATOR + EXPERT CRITICS (with global model override):
-       python -m llm_critique.main "Your prompt" \\
-         --creator-persona elon_musk \\
-         --personas steve_jobs,ray_dalio \\
-         --personas-model o3-mini
+    python -m llm_critique.main \"Your prompt\" \\
+      --creator-persona elon_musk \\
+      --personas steve_jobs,ray_dalio \\
+      --personas-model o3-mini
     
-    3️⃣ EXPERT CREATOR + VANILLA CRITICS:
-       python -m llm_critique.main "Your prompt" \\
-         --creator-persona steve_jobs \\
-         --critique-models gpt-4o,claude-4-sonnet
+    3️⃣ VANILLA CREATOR + VANILLA CRITICS:
+    python -m llm_critique.main \"Your prompt\" \\
+      --creator-persona gpt-4o \\
+      --critique-models claude-4-sonnet,grok-beta
     
-    4️⃣ VANILLA CREATOR + EXPERT CRITICS:
-       python -m llm_critique.main "Your prompt" \\
-         --creator-persona gpt-4o \\
-         --personas ray_dalio,warren_buffett \\
-         --personas-model claude-4-sonnet
+    4️⃣ EXPERT CREATOR + VANILLA CRITICS:
+    python -m llm_critique.main \"Your prompt\" \\
+      --creator-persona steve_jobs \\
+      --critique-models gpt-4o,gemini-2.0-flash
     
-    5️⃣ VANILLA CREATOR + VANILLA CRITICS:
-       python -m llm_critique.main "Your prompt" \\
-         --creator-persona gpt-4o \\
-         --critique-models claude-4-sonnet,gemini-pro
-    
-    6️⃣ ALL EXPERT PERSONAS (with required global model):
-       python -m llm_critique.main "Your prompt" \\
-         --creator-persona elon_musk \\
-         --personas all \\
-         --personas-model o3-mini
+    5️⃣ ALL PERSONAS (with model override):
+    python -m llm_critique.main \"Your prompt\" \\
+      --creator-persona elon_musk \\
+      --personas all \\
+      --personas-model grok-3
     
     🔧 KEY RULES:
+    • --personas and --critique-models are mutually exclusive
+    • --personas-model only works with --personas (overrides all)
+    • --personas all requires --personas-model
     
-    • --personas and --critique-models are MUTUALLY EXCLUSIVE
-    • --personas-model ONLY works with --personas (overrides ALL persona models)
-    • --personas all REQUIRES --personas-model
-    • Expert personas have built-in preferred models (can be overridden)
-    • Vanilla models work as-is
+    📖 DISCOVERY:
+    --list-personas    # See all expert personas
+    --list-models      # See all supported models (OpenAI, Anthropic, Google, X AI)
+    --persona-info steve_jobs  # Get persona details
+    --est-cost         # Estimate workflow cost
     
-    📖 DISCOVERY COMMANDS:
-    
-    --list-personas     # See all expert personas and vanilla models
-    --list-models       # See all supported AI models  
-    --persona-info NAME # Detailed info about a specific persona
-    --est-cost          # Estimate cost before running
-    
-    🎯 QUICK START:
-    
-    python -m llm_critique.main "Design a mobile app" --creator-persona steve_jobs --personas ray_dalio
+    🔑 API KEYS REQUIRED:
+    Set environment variables: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, XAI_API_KEY
     """
     
     async def run_async():
@@ -704,6 +794,7 @@ def cli(
                 console.print("• OPENAI_API_KEY")  
                 console.print("• ANTHROPIC_API_KEY")
                 console.print("• GOOGLE_API_KEY")
+                console.print("• XAI_API_KEY")
                 console.print()
                 console.print("See env.example for guidance")
                 return
@@ -787,8 +878,7 @@ def cli(
                 
                 # Validate personas-model is available if specified
                 if personas_model and personas_model not in available_models:
-                    console.print(f"[red]Error: Personas model '{personas_model}' not available[/red]")
-                    console.print(f"Available models: {', '.join(available_models)}")
+                    display_helpful_model_error(personas_model, available_models)
                     return
                 
                 validation_result = persona_manager.validate_persona_combination(requested_personas, global_model_override=personas_model)
@@ -892,8 +982,7 @@ def cli(
                     else:
                         creator_model = available_models[0]
                 elif creator_model not in available_models:
-                    console.print(f"[red]Error: Config creator model '{creator_model}' not available[/red]")
-                    console.print(f"Available models: {', '.join(available_models)}")
+                    display_helpful_model_error(creator_model, available_models)
                     return
                 
                 # Create vanilla persona for the creator model
@@ -1123,16 +1212,14 @@ def estimate_workflow_cost(prompt: Optional[str], file: Optional[str], creator_m
         # Set creator model
         if creator_model:
             if creator_model not in available_models:
-                console.print(f"[red]Error: Creator model '{creator_model}' not available[/red]")
-                console.print(f"Available models: {', '.join(available_models)}")
+                display_helpful_model_error(creator_model, available_models)
                 return
         else:
             creator_model = config_obj.default_creator
             if creator_model == "auto":
                 creator_model = models_to_use[0]
             elif creator_model not in available_models:
-                console.print(f"[red]Error: Config creator model '{creator_model}' not available[/red]")
-                console.print(f"Available models: {', '.join(available_models)}")
+                display_helpful_model_error(creator_model, available_models)
                 return
         
         if not models_to_use:
@@ -1352,8 +1439,7 @@ def estimate_workflow_cost_with_personas(
             
             # Validate personas-model is available if specified
             if personas_model and personas_model not in available_models:
-                console.print(f"[red]Error: Personas model '{personas_model}' not available[/red]")
-                console.print(f"Available models: {', '.join(available_models)}")
+                display_helpful_model_error(personas_model, available_models)
                 return
             
             validation_result = persona_manager.validate_persona_combination(requested_personas, global_model_override=personas_model)
@@ -1449,8 +1535,7 @@ def estimate_workflow_cost_with_personas(
             if creator_model == "auto":
                 creator_model = critics_info[0]["model"] if critics_info else available_models[0]
             elif creator_model not in available_models:
-                console.print(f"[red]Error: Config creator model '{creator_model}' not available[/red]")
-                console.print(f"Available models: {', '.join(available_models)}")
+                display_helpful_model_error(creator_model, available_models)
                 return
             
             # Create vanilla creator info

@@ -160,6 +160,36 @@ class LLMClient:
                 temperature=0.7,
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
+        
+        # X AI Grok
+        if os.getenv("XAI_API_KEY"):
+            # X AI uses OpenAI-compatible API
+            base_url = "https://api.x.ai/v1"
+            api_key = os.getenv("XAI_API_KEY")
+            
+            # Current production models
+            self.clients["grok-beta"] = ChatOpenAI(
+                model="grok-beta",
+                openai_api_base=base_url,
+                openai_api_key=api_key,
+                temperature=0.7
+            )
+            
+            self.clients["grok-2"] = ChatOpenAI(
+                model="grok-2", 
+                openai_api_base=base_url,
+                openai_api_key=api_key,
+                temperature=0.7
+            )
+            
+            # Grok 3 family (when available)
+            for model in ["grok-3", "grok-3-mini", "grok-3-reasoning", "grok-3-mini-reasoning"]:
+                self.clients[model] = ChatOpenAI(
+                    model=model,
+                    openai_api_base=base_url,
+                    openai_api_key=api_key,
+                    temperature=0.7
+                )
     
     def get_models(self, model_names: List[str]) -> Dict[str, BaseChatModel]:
         """Get a dictionary of models by name."""
@@ -216,7 +246,15 @@ class LLMClient:
             "gemini-2.0-flash-lite": 0.0005,  # $0.0005 per 1K tokens
             "gemini-1.5-flash": 0.0005,  # $0.0005 per 1K tokens
             "gemini-1.5-flash-8b": 0.0005,  # $0.0005 per 1K tokens
-            "gemini-1.5-pro": 0.0005  # $0.0005 per 1K tokens
+            "gemini-1.5-pro": 0.0005,  # $0.0005 per 1K tokens
+            
+            # X AI Grok models
+            "grok-beta": 2.0,  # $2.00 per 1M tokens (input pricing)
+            "grok-2": 2.0,  # $2.00 per 1M tokens (input pricing)
+            "grok-3": 3.0,  # $3.00 per 1M tokens (input pricing)
+            "grok-3-mini": 0.3,  # $0.30 per 1M tokens (input pricing, estimated)
+            "grok-3-reasoning": 3.0,  # $3.00 per 1M tokens (input pricing, same as grok-3)
+            "grok-3-mini-reasoning": 0.5  # $0.50 per 1M tokens (input pricing, estimated)
         }
         
         return (tokens / 1000) * costs.get(model, 0.0) 

@@ -17,6 +17,7 @@ LLM Critique uses a **creator-critic workflow** where:
   - OpenAI (for GPT-4o, o1, o3 models)
   - Anthropic (for Claude 4 models)  
   - Google (for Gemini 2.x models)
+  - X AI (for Grok models with real-time data)
 
 ## 🛠️ Step 1: Installation
 
@@ -62,6 +63,11 @@ pip install -e .
 2. Create a new API key
 3. Enable the Generative AI API
 
+#### X AI (Optional)
+1. Go to [X AI Console](https://console.x.ai/)
+2. Create an API key
+3. Copy the key (starts with `xai-`)
+
 ### Configure Environment Variables
 ```bash
 # Copy the example file
@@ -76,6 +82,7 @@ Add your API keys to `.env`:
 OPENAI_API_KEY=sk-your-openai-key-here
 ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
 GOOGLE_API_KEY=your-google-key-here
+XAI_API_KEY=xai-your-xai-key-here
 ```
 
 ## 🎮 Step 3: First Run
@@ -129,6 +136,11 @@ python -m llm_critique.main --file prompt.txt
 python -m llm_critique.main "Design a mobile app" \
   --creator-model gpt-4o \
   --critique-models claude-4-sonnet,gemini-2.0-flash
+
+# Use X AI Grok models
+python -m llm_critique.main "Analyze recent tech trends" \
+  --creator-model grok-3 \
+  --critique-models grok-beta,claude-4-sonnet
 ```
 
 ### Multiple Iterations
@@ -145,6 +157,11 @@ python -m llm_critique.main --est-cost "Write a detailed research paper" \
   --creator-model gpt-4o \
   --critique-models claude-4-opus \
   --iterations 3
+
+# Estimate Grok model costs (higher pricing)
+python -m llm_critique.main --est-cost "Complex analysis task" \
+  --creator-model grok-3 \
+  --critique-models grok-3-reasoning,claude-4-sonnet
 ```
 
 ## 🎨 Step 5: Understanding the Output
@@ -178,6 +195,10 @@ Perfect for programmatic use or integration with other tools.
 **For Technical Content:**
 - Creator: `gpt-4o` or `o1-mini` (reasoning)
 - Critics: `claude-4-opus`, `gpt-4o-mini`
+
+**For Real-Time Analysis:**
+- Creator: `grok-beta` or `grok-3` (X data access)  
+- Critics: `grok-3-reasoning`, `claude-4-sonnet`
 
 **For Cost-Effectiveness:**
 - Creator: `gpt-4o-mini` or `claude-3.5-haiku`
@@ -220,7 +241,7 @@ LLM_CRITIQUE_MAX_ITERATIONS=2
 **"No API key found"**
 - Check your `.env` file exists and has correct API keys
 - Ensure you're in the right directory
-- Verify API key format (OpenAI starts with `sk-`)
+- Verify API key format (OpenAI starts with `sk-`, X AI with `xai-`)
 
 **"Model not available"**
 - Run `--list-models` to see available models
@@ -231,12 +252,13 @@ LLM_CRITIQUE_MAX_ITERATIONS=2
 - Use `--est-cost` before running
 - Choose smaller models for critics (`gpt-4o-mini`, `claude-3.5-haiku`)
 - Reduce `--iterations` count
+- Note: Grok models have higher per-token costs
 
 **Poor quality results**
 - Try different model combinations
 - Increase `--iterations` for complex tasks
 - Make your prompt more specific
-- Use reasoning models (`o1`, `o3`) for complex logic
+- Use reasoning models (`o1`, `o3`, `grok-3-reasoning`) for complex logic
 
 ### Getting Help
 ```bash
@@ -263,6 +285,11 @@ python -m llm_critique.main "Create a marketing strategy" \
   --creator-model claude-4-sonnet \
   --critique-models gpt-4o,gemini-2.0-flash \
   --iterations 3
+
+# Real-time analysis with Grok
+python -m llm_critique.main "Analyze current tech trends" \
+  --creator-model grok-beta \
+  --critique-models grok-3-reasoning,claude-4-sonnet
 
 # Code review and improvement
 python -m llm_critique.main "Review and improve this Python function" \

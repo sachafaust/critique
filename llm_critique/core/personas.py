@@ -185,6 +185,13 @@ class UnifiedPersonaManager:
                 "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"
             ])
         
+        if os.getenv("XAI_API_KEY"):
+            available.extend([
+                "grok-beta", "grok-3", "grok-3-mini", 
+                "grok-3-reasoning", "grok-3-mini-reasoning",
+                "grok-2"
+            ])
+        
         self._available_models = available
 
     def _discover_expert_personas(self):

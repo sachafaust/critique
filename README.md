@@ -46,9 +46,10 @@ pip install -e .
 
 2. **Set up API Keys** (create `.env` file):
 ```env
-OPENAI_API_KEY=your-openai-key-here
-ANTHROPIC_API_KEY=your-anthropic-key-here  
+OPENAI_API_KEY=sk-your-openai-key
+ANTHROPIC_API_KEY=sk-ant-your-anthropic-key  
 GOOGLE_API_KEY=your-google-key
+XAI_API_KEY=xai-your-xai-key
 ```
 
 3. **Run your first critique**:
@@ -66,6 +67,9 @@ python -m llm_critique.main "Explain quantum computing"
 # Use specific creator and critic models
 python -m llm_critique.main "Write a poem" --creator-model gpt-4o --critique-models claude-4-sonnet,gemini-2.0-flash
 
+# Use X AI Grok models with real-time data
+python -m llm_critique.main "Analyze recent AI trends" --creator-model grok-3 --critique-models grok-beta,claude-4-sonnet
+
 # Multiple iterations for complex tasks
 python -m llm_critique.main "Design a REST API" --iterations 3
 
@@ -80,6 +84,9 @@ python -m llm_critique.main --est-cost "Write a detailed analysis of climate cha
 
 # Estimate cost from file
 python -m llm_critique.main --est-cost --file large_prompt.txt --creator-model gpt-4o --critique-models claude-4-opus,gpt-4o-mini
+
+# Estimate X AI Grok model costs (higher pricing)
+python -m llm_critique.main --est-cost "Complex analysis task" --creator-model grok-3 --critique-models grok-3-reasoning,claude-4-sonnet
 ```
 
 ### Model Management
@@ -89,6 +96,9 @@ python -m llm_critique.main --list-models
 
 # Use reasoning models
 python -m llm_critique.main "Solve this logic puzzle" --creator-model o1-mini --critique-models o3-mini,claude-4-sonnet
+
+# Use X AI Grok reasoning models  
+python -m llm_critique.main "Complex math problem" --creator-model grok-3-reasoning --critique-models grok-3-mini-reasoning,o1-mini
 ```
 
 ## 🤖 Supported Models
@@ -107,6 +117,11 @@ python -m llm_critique.main "Solve this logic puzzle" --creator-model o1-mini --
 - **Gemini 2.x**: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.0-flash`
 - **Legacy**: `gemini-pro`
 
+### X AI  
+- **Grok 3 Series**: `grok-3`, `grok-3-mini` (latest flagship and efficient models)
+- **Reasoning Models**: `grok-3-reasoning`, `grok-3-mini-reasoning` (advanced reasoning)
+- **Production**: `grok-beta` (real-time X data), `grok-2` (previous generation)
+
 ## 🛠️ Configuration
 
 ### Environment Variables
@@ -117,6 +132,7 @@ Create a `.env` file in your project root:
 OPENAI_API_KEY=sk-your-openai-key
 ANTHROPIC_API_KEY=sk-ant-your-anthropic-key  
 GOOGLE_API_KEY=your-google-key
+XAI_API_KEY=xai-your-xai-key
 
 # Optional: Customize default behavior
 LLM_CRITIQUE_DEFAULT_CREATOR=gpt-4o

@@ -131,7 +131,15 @@ class ConversationManager:
                 icon = "🤖"  # Vanilla model icon
             
             self.console_output.append(f"  {icon} {persona_name}")
-            self.console_output.append(f"     📊 Quality Score: {critic.get('quality_score', 'N/A')}%")
+            
+            # Convert quality score from decimal to percentage
+            quality_score = critic.get('quality_score', 'N/A')
+            if isinstance(quality_score, (int, float)):
+                quality_display = f"{quality_score * 100:.1f}%"
+            else:
+                quality_display = f"{quality_score}%"
+            
+            self.console_output.append(f"     📊 Quality Score: {quality_display}")
             
             strengths = critic.get('strengths', [])
             if strengths:

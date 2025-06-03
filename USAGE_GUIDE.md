@@ -7,10 +7,10 @@
 python -m llm_critique.main "Design a mobile app" --creator-persona steve_jobs --personas ray_dalio
 
 # Simple vanilla setup
-python -m llm_critique.main "Review my code" --creator-persona gpt-4o --critique-models claude-4-sonnet,gemini-2.0-flash
+python -m llm_critique.main "Review my code" --creator-persona gpt-4o --critique-models claude-4-sonnet,grok-beta
 ```
 
-## �� Expert Personas vs 🤖 Vanilla Models
+##  Expert Personas vs 🤖 Vanilla Models
 
 ### Expert Personas
 - **Rich personality**: Authentic voice, expertise, thinking patterns
@@ -19,7 +19,7 @@ python -m llm_critique.main "Review my code" --creator-persona gpt-4o --critique
 
 ### Vanilla Models  
 - **Standard AI**: Clean, professional responses without personality
-- **Examples**: `gpt-4o`, `claude-4-sonnet`, `gemini-2.0-flash`, `o3-mini`
+- **Examples**: `gpt-4o`, `claude-4-sonnet`, `gemini-2.0-flash`, `grok-beta`, `o3-mini`
 - **Features**: Cost-efficient, reliable, general-purpose
 
 ## 📋 Complete Usage Patterns
@@ -233,6 +233,36 @@ python -m llm_critique.main "Evaluate this startup idea" \
 ```bash
 --est-cost  # Estimate tokens and cost without running
 ```
+
+## 🚀 X AI Grok Models
+
+X AI's Grok models offer real-time access to X (Twitter) data and advanced reasoning capabilities:
+
+### Available Models
+- **grok-beta**: Current production model with real-time X data integration
+- **grok-3**: Latest flagship model with 1M context window (when available)
+- **grok-3-mini**: Faster, cost-efficient version
+- **grok-3-reasoning**: Advanced reasoning with "Think" mode
+- **grok-2**: Previous generation model
+
+### Setup
+```bash
+export XAI_API_KEY="your-xai-api-key"
+```
+
+### Usage Examples
+```bash
+# Latest Grok with real-time data
+python -m llm_critique.main "Analyze recent tech trends" --creator-persona grok-beta --critique-models grok-3-reasoning
+
+# Cost-efficient setup
+python -m llm_critique.main "Quick code review" --creator-persona grok-3-mini --critique-models grok-beta
+
+# Reasoning-focused analysis
+python -m llm_critique.main "Complex math problem" --creator-persona grok-3-reasoning --critique-models steve_jobs --personas-model grok-3
+```
+
+## 🎯 Common Usage Patterns
 
 ---
 
