@@ -372,9 +372,8 @@ llm-critique/
 │   └── conftest.py        # Test configuration
 ├── config.yaml           # Default configuration
 ├── .env.example          # Environment variable template
-├── requirements.txt      # Production dependencies
-├── requirements-dev.txt  # Development dependencies
-└── pyproject.toml        # Project metadata
+├── pyproject.toml        # Project metadata and dependencies
+└── README.md             # This file
 ```
 
 ## 🤝 Contributing
