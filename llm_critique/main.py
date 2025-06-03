@@ -188,12 +188,12 @@ def display_available_models():
         },
         "X AI Grok Models": {
             "models": [
-                ("grok-beta", "Grok Beta", "Current production model with real-time X data", "$2.00/$10.00"),
-                ("grok-3", "Grok 3", "Latest flagship model with 131K context", "$3.00/$15.00"),
-                ("grok-3-mini", "Grok 3 Mini", "Faster, cost-efficient version", "$0.30/$0.50"),
-                ("grok-3-reasoning", "Grok 3 Reasoning", "Advanced reasoning with 'Think' mode", "$3.00/$15.00"),
-                ("grok-3-mini-reasoning", "Grok 3 Mini Reasoning", "Compact reasoning model", "$0.50/$1.00"),
-                ("grok-2", "Grok 2", "Previous generation model", "$2.00/$10.00"),
+                ("grok-beta", "Grok Beta", "Current production model with real-time X data", "$0.002"),
+                ("grok-3", "Grok 3", "Latest flagship model with 131K context", "$0.003"),
+                ("grok-3-mini", "Grok 3 Mini", "Faster, cost-efficient version", "$0.0003"),
+                ("grok-3-reasoning", "Grok 3 Reasoning", "Advanced reasoning with 'Think' mode", "$0.003"),
+                ("grok-3-mini-reasoning", "Grok 3 Mini Reasoning", "Compact reasoning model", "$0.0005"),
+                ("grok-2", "Grok 2", "Previous generation model", "$0.002"),
             ],
             "api_key": "XAI_API_KEY"
         },

@@ -249,12 +249,12 @@ class LLMClient:
             "gemini-1.5-pro": 0.0005,  # $0.0005 per 1K tokens
             
             # X AI Grok models
-            "grok-beta": 2.0,  # $2.00 per 1M tokens (input pricing)
-            "grok-2": 2.0,  # $2.00 per 1M tokens (input pricing)
-            "grok-3": 3.0,  # $3.00 per 1M tokens (input pricing)
-            "grok-3-mini": 0.3,  # $0.30 per 1M tokens (input pricing, estimated)
-            "grok-3-reasoning": 3.0,  # $3.00 per 1M tokens (input pricing, same as grok-3)
-            "grok-3-mini-reasoning": 0.5  # $0.50 per 1M tokens (input pricing, estimated)
+            "grok-beta": 0.002,  # $2.00 per 1M tokens = $0.002 per 1K tokens (input pricing)
+            "grok-2": 0.002,  # $2.00 per 1M tokens = $0.002 per 1K tokens (input pricing)
+            "grok-3": 0.003,  # $3.00 per 1M tokens = $0.003 per 1K tokens (input pricing)
+            "grok-3-mini": 0.0003,  # $0.30 per 1M tokens = $0.0003 per 1K tokens (input pricing, estimated)
+            "grok-3-reasoning": 0.003,  # $3.00 per 1M tokens = $0.003 per 1K tokens (input pricing, same as grok-3)
+            "grok-3-mini-reasoning": 0.0005  # $0.50 per 1M tokens = $0.0005 per 1K tokens (input pricing, estimated)
         }
         
         return (tokens / 1000) * costs.get(model, 0.0) 
