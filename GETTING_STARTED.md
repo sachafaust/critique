@@ -89,7 +89,7 @@ XAI_API_KEY=xai-your-xai-key-here
 
 ### Test Your Setup
 ```bash
-python -m llm_critique.main "Write a haiku about programming"
+python -m llm_critique.main "Write a haiku about programming" --creator-persona elon_musk --personas steve_jobs,ray_dalio
 ```
 
 **Expected Output:**
