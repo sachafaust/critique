@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import time
+from pathlib import Path
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 import uuid
@@ -908,3 +909,499 @@ Provide an improved response that:
         
         console.print(f"🔄 [bold]ITERATIONS:[/bold] {iterations_count} | [bold]CONVERGENCE:[/bold] {convergence_text}")
         console.print()
+
+    async def synthesize_document_critique(
+        self,
+        document_content: str,
+        document_path: str,
+        persona_configs: List,  # List of PersonaConfig objects
+        output_format: str = "human"
+    ) -> Dict[str, Any]:
+        """Execute document critique workflow without content creation."""
+        start_time = time.time()
+        
+        # Create unique execution ID
+        execution_id = str(uuid.uuid4())
+        
+        # Initialize progress tracking
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+            console=console
+        ) as progress:
+            task_id = progress.add_task("Critiquing document...", total=len(persona_configs))
+            
+            # Execute document critique workflow
+            workflow_results = await self._execute_document_critique_workflow(
+                document_content=document_content,
+                document_path=document_path,
+                persona_configs=persona_configs,
+                progress=progress,
+                task_id=task_id
+            )
+        
+        # Calculate total duration and cost
+        total_duration_ms = (time.time() - start_time) * 1000
+        total_cost = self._calculate_document_cost(document_content, persona_configs, workflow_results)
+        
+        # Calculate quality metrics
+        quality_metrics = self._calculate_persona_quality_metrics(workflow_results)
+        
+        # Generate persona analysis
+        persona_analysis = self._analyze_document_critique_personas(workflow_results)
+        
+        # Create final synthesis of critiques
+        final_synthesis = self._synthesize_document_critiques(workflow_results, document_path)
+        
+        # Prepare results
+        results = {
+            "execution_id": execution_id,
+            "timestamp": datetime.now().isoformat(),
+            "input": {
+                "document_path": document_path,
+                "document_length": len(document_content),
+                "personas": [config.name for config in persona_configs],
+                "persona_types": [config.persona_type.value for config in persona_configs],
+                "models_used": [config.preferred_model for config in persona_configs]
+            },
+            "results": {
+                "workflow_results": workflow_results,
+                "final_answer": final_synthesis,
+                "confidence_score": quality_metrics["average_confidence"],
+                "consensus_score": quality_metrics.get("persona_consensus", 0.85),
+                "total_iterations": 1,  # Document critique is always single iteration
+                "convergence_achieved": True  # Single iteration always "converges"
+            },
+            "performance": {
+                "total_duration_ms": total_duration_ms,
+                "estimated_cost_usd": total_cost
+            },
+            "quality_metrics": quality_metrics,
+            "persona_analysis": persona_analysis
+        }
+        
+        # Format output
+        if output_format == "human":
+            self._print_document_critique_output(results)
+        
+        return results
+
+    async def _execute_document_critique_workflow(
+        self,
+        document_content: str,
+        document_path: str,
+        persona_configs: List,
+        progress,
+        task_id
+    ) -> Dict[str, Any]:
+        """Execute the document critique workflow with personas."""
+        
+        # Generate critiques from all personas
+        persona_critiques = []
+        
+        for i, persona_config in enumerate(persona_configs):
+            try:
+                # Get the LLM for this persona
+                llm = self.llm_client.get_model(persona_config.preferred_model)
+                
+                # Generate document critique prompt
+                critique_prompt = self._generate_document_critique_prompt(
+                    document_content, document_path, persona_config
+                )
+                
+                # Execute critique
+                response = await llm.ainvoke(critique_prompt)
+                
+                # Parse critique response
+                critique = self._parse_persona_critique_response(
+                    response.content, persona_config, document_content
+                )
+                
+                persona_critiques.append(critique)
+                
+                # Update progress
+                progress.update(task_id, advance=1)
+                
+            except Exception as e:
+                console.print(f"[red]Error getting critique from {persona_config.name}: {e}[/red]")
+                # Continue with other personas
+                continue
+        
+        # Create workflow results structure
+        workflow_results = {
+            "iterations": [{
+                "iteration_num": 1,
+                "persona_critiques": persona_critiques,
+                "consensus_score": self._calculate_iteration_consensus(persona_critiques)
+            }],
+            "total_iterations": 1,
+            "convergence_achieved": True,
+            "final_content": self._synthesize_document_critiques({
+                "iterations": [{"persona_critiques": persona_critiques}]
+            }, document_path)
+        }
+        
+        return workflow_results
+
+    def _generate_document_critique_prompt(self, document_content: str, document_path: str, persona_config) -> str:
+        """Generate a critique prompt for document analysis."""
+        
+        # Get file extension for context
+        file_ext = Path(document_path).suffix.lower()
+        document_type = self._infer_document_type(file_ext)
+        
+        # Base prompt template
+        base_prompt = f"""You are {persona_config.name}, {persona_config.description}
+
+TASK: Provide a comprehensive critique of the following {document_type}:
+
+DOCUMENT TO CRITIQUE:
+{document_content}
+
+CRITIQUE INSTRUCTIONS:
+1. Analyze the document from your unique perspective as {persona_config.name}
+2. Evaluate quality, clarity, structure, and effectiveness
+3. Identify strengths and areas for improvement
+4. Provide specific, actionable recommendations
+5. Consider the document's purpose and target audience
+
+RESPONSE FORMAT:
+Please structure your critique as follows:
+
+OVERALL ASSESSMENT:
+[Your overall impression and quality rating from 1-10]
+
+KEY STRENGTHS:
+[List 2-3 main strengths you identify]
+
+AREAS FOR IMPROVEMENT:
+[List 2-4 specific areas that need work]
+
+SPECIFIC RECOMMENDATIONS:
+[Provide 3-5 actionable recommendations for improvement]
+
+EXPERT PERSPECTIVE:
+[Share insights unique to your expertise and background]
+
+QUALITY SCORE: [Rate from 0.0 to 1.0 based on your assessment]
+CONFIDENCE: [Your confidence in this assessment from 0.0 to 1.0]
+"""
+        
+        # Add persona-specific context if available
+        if hasattr(persona_config, 'expertise_areas') and persona_config.expertise_areas:
+            base_prompt += f"\nFocus particularly on aspects related to: {', '.join(persona_config.expertise_areas)}"
+        
+        return base_prompt
+
+    def _infer_document_type(self, file_ext: str) -> str:
+        """Infer document type from file extension."""
+        type_mapping = {
+            '.txt': 'text document',
+            '.md': 'markdown document', 
+            '.py': 'Python code',
+            '.js': 'JavaScript code',
+            '.html': 'HTML document',
+            '.css': 'CSS stylesheet',
+            '.json': 'JSON data',
+            '.yaml': 'YAML configuration',
+            '.yml': 'YAML configuration',
+            '.xml': 'XML document',
+            '.csv': 'CSV data file',
+            '.sql': 'SQL script',
+            '.sh': 'shell script',
+            '.pdf': 'PDF document',
+            '.doc': 'Word document',
+            '.docx': 'Word document',
+            '.rtf': 'RTF document'
+        }
+        
+        return type_mapping.get(file_ext, 'document')
+
+    def _synthesize_document_critiques(self, workflow_results: Dict[str, Any], document_path: str) -> str:
+        """Synthesize all persona critiques into a comprehensive summary."""
+        
+        if not workflow_results["iterations"] or not workflow_results["iterations"][0]["persona_critiques"]:
+            return "No critiques were generated for this document."
+        
+        critiques = workflow_results["iterations"][0]["persona_critiques"]
+        
+        # Calculate average quality score
+        quality_scores = [c.quality_score for c in critiques if hasattr(c, 'quality_score')]
+        avg_quality = sum(quality_scores) / len(quality_scores) if quality_scores else 0.5
+        
+        # Collect all insights and recommendations
+        all_insights = []
+        all_recommendations = []
+        
+        for critique in critiques:
+            if hasattr(critique, 'key_insights') and critique.key_insights:
+                all_insights.extend(critique.key_insights)
+            if hasattr(critique, 'recommendations') and critique.recommendations:
+                all_recommendations.extend(critique.recommendations)
+        
+        # Create synthesis
+        synthesis = f"""📄 DOCUMENT CRITIQUE SUMMARY
+Document: {Path(document_path).name}
+Overall Quality Score: {avg_quality:.1%}
+Critics Consulted: {len(critiques)} expert perspectives
+
+🎯 CONSENSUS INSIGHTS:
+{self._format_consensus_points(all_insights)}
+
+💡 KEY RECOMMENDATIONS:
+{self._format_consensus_points(all_recommendations)}
+
+📊 EXPERT PERSPECTIVES:
+"""
+        
+        # Add individual expert summaries
+        for critique in critiques:
+            persona_name = critique.persona_name if hasattr(critique, 'persona_name') else "Unknown"
+            quality_score = critique.quality_score if hasattr(critique, 'quality_score') else 0.5
+            
+            synthesis += f"\n• {persona_name}: {quality_score:.1%} quality rating"
+            
+            # Add top insight if available
+            if hasattr(critique, 'key_insights') and critique.key_insights:
+                synthesis += f" - \"{critique.key_insights[0]}\""
+        
+        synthesis += f"\n\n✅ Document critique complete. {len(critiques)} expert perspectives analyzed."
+        
+        return synthesis
+
+    def _format_consensus_points(self, points: List[str]) -> str:
+        """Format a list of points into a readable string."""
+        if not points:
+            return "• No specific points identified"
+        
+        # Remove duplicates while preserving order
+        unique_points = list(dict.fromkeys(points))
+        
+        # Take top 5 points
+        top_points = unique_points[:5]
+        
+        return "\n".join([f"• {point}" for point in top_points])
+
+    def _analyze_document_critique_personas(self, workflow_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze persona-specific insights from document critique."""
+        
+        if not workflow_results["iterations"] or not workflow_results["iterations"][0]["persona_critiques"]:
+            return {
+                "consensus_areas": [],
+                "conflicting_perspectives": [],
+                "weighted_recommendations": [],
+                "expert_insights": []
+            }
+        
+        critiques = workflow_results["iterations"][0]["persona_critiques"]
+        
+        return {
+            "consensus_areas": self._find_consensus_insights(critiques),
+            "conflicting_perspectives": self._identify_persona_conflicts(critiques),
+            "weighted_recommendations": self._weight_recommendations_by_expertise(critiques),
+            "expert_insights": self._extract_expert_insights(critiques)
+        }
+
+    def _extract_expert_insights(self, critiques: List) -> List[Dict[str, Any]]:
+        """Extract unique insights from expert personas."""
+        expert_insights = []
+        
+        for critique in critiques:
+            if hasattr(critique, 'persona_type') and critique.persona_type.value == "expert":
+                if hasattr(critique, 'key_insights') and critique.key_insights:
+                    for insight in critique.key_insights[:2]:  # Top 2 insights per expert
+                        expert_insights.append({
+                            "insight": insight,
+                            "expert": critique.persona_name,
+                            "confidence": getattr(critique, 'confidence_level', 0.8)
+                        })
+        
+        # Sort by confidence
+        expert_insights.sort(key=lambda x: x["confidence"], reverse=True)
+        
+        return expert_insights[:8]  # Top 8 expert insights
+
+    def _calculate_document_cost(self, document_content: str, persona_configs: List, workflow_results: Dict[str, Any]) -> float:
+        """Calculate cost for document critique workflow."""
+        def estimate_tokens(text: str) -> int:
+            return max(1, len(text) // 4)
+        
+        cost = 0.0
+        
+        # Document critique is single iteration
+        if workflow_results["iterations"]:
+            iteration = workflow_results["iterations"][0]
+            
+            for i, critique in enumerate(iteration["persona_critiques"]):
+                persona_config = persona_configs[i] if i < len(persona_configs) else None
+                
+                if persona_config:
+                    # Include persona context in input token calculation
+                    context_tokens = persona_config.get_prompt_context_size_estimate()
+                    content_tokens = estimate_tokens(document_content)
+                    total_input_tokens = context_tokens + content_tokens
+                    
+                    # Estimate output tokens for critique
+                    output_tokens = estimate_tokens(getattr(critique, 'critique_text', '')) or 300
+                    
+                    model_name = persona_config.preferred_model
+                    cost += self.llm_client.estimate_cost(model_name, total_input_tokens)
+                    cost += self.llm_client.estimate_cost(model_name, output_tokens)
+        
+        return cost
+
+    def _print_document_critique_output(self, results: Dict[str, Any]) -> None:
+        """Print human-readable document critique results."""
+        from rich.table import Table
+        from rich.panel import Panel
+        
+        console.print()
+        console.print(Panel.fit(
+            "[bold blue]📄 Document Critique Results[/bold blue]",
+            border_style="blue"
+        ))
+        
+        # Input information
+        input_info = results["input"]
+        console.print(f"📄 Document: {input_info['document_path']}", style="cyan")
+        console.print(f"📏 Length: {input_info['document_length']:,} characters", style="dim")
+        
+        personas_display = ", ".join(input_info["personas"])
+        console.print(f"🧠 Critics: {personas_display}", style="cyan")
+        
+        # Performance metrics
+        perf = results["performance"]
+        console.print(f"⏱️  Duration: {perf['total_duration_ms']:.0f}ms | 💰 Cost: ${perf['estimated_cost_usd']:.4f}", style="dim")
+        console.print()
+        
+        # Quality metrics
+        quality = results["quality_metrics"]
+        console.print(f"📊 Confidence: {quality['average_confidence']:.1%} | 🤝 Consensus: {quality.get('persona_consensus', 0.85):.1%}", style="green")
+        console.print()
+        
+        # Document critique synthesis
+        console.print(Panel(results["results"]["final_answer"], title="📄 Document Critique Summary", border_style="green"))
+        
+        # Persona analysis summary
+        persona_analysis = results["persona_analysis"]
+        
+        if persona_analysis["expert_insights"]:
+            console.print("\n🧠 [bold]EXPERT INSIGHTS[/bold]", style="blue")
+            for insight in persona_analysis["expert_insights"][:5]:
+                console.print(f"  • {insight['insight']} (from {insight['expert']})")
+        
+        if persona_analysis["consensus_areas"]:
+            console.print("\n🤝 [bold]CONSENSUS AREAS[/bold]", style="green")
+            for area in persona_analysis["consensus_areas"][:3]:
+                console.print(f"  • {area}")
+        
+        if persona_analysis["weighted_recommendations"]:
+            console.print("\n💡 [bold]TOP RECOMMENDATIONS[/bold]", style="blue")
+            for rec in persona_analysis["weighted_recommendations"][:5]:
+                console.print(f"  • {rec['recommendation']} (from {rec['persona']})")
+        
+        # Individual persona critiques
+        workflow_results = results["results"]["workflow_results"]
+        if workflow_results["iterations"]:
+            iteration = workflow_results["iterations"][0]
+            
+            console.print(f"\n🎭 [bold]INDIVIDUAL CRITIQUES[/bold]")
+            console.print()
+            
+            for critique in iteration["persona_critiques"]:
+                persona_name = getattr(critique, 'persona_name', 'Unknown')
+                persona_type = getattr(critique, 'persona_type', None)
+                quality_score = getattr(critique, 'quality_score', 0.5)
+                confidence = getattr(critique, 'confidence_level', 0.8)
+                
+                # Persona header with type indicator
+                persona_icon = "🧠" if persona_type and persona_type.value == "expert" else "🤖"
+                console.print(f"{persona_icon} [bold]{persona_name}[/bold] - Quality: {quality_score:.1%}, Confidence: {confidence:.1%}", style="cyan")
+                
+                # Key insights
+                if hasattr(critique, 'key_insights') and critique.key_insights:
+                    console.print("  [bold]Key Insights:[/bold]")
+                    for insight in critique.key_insights[:2]:
+                        console.print(f"    • {insight}")
+                
+                # Recommendations
+                if hasattr(critique, 'recommendations') and critique.recommendations:
+                    console.print("  [bold]Recommendations:[/bold]")
+                    for rec in critique.recommendations[:2]:
+                        console.print(f"    • {rec}")
+                
+                console.print()
+        
+        console.print(f"✅ [bold]Document critique complete![/bold] Analyzed by {len(input_info['personas'])} expert perspectives.")
+        console.print()
+
+    def _parse_persona_critique_response(self, response_content: str, persona_config, document_content: str):
+        """Parse persona critique response into a structured format."""
+        import re
+        from .personas import CritiqueResult, PersonaType
+        
+        # Initialize default values
+        quality_score = 0.0
+        key_insights = []
+        recommendations = []
+        confidence_level = 0.0
+        red_flags = []
+        
+        # Extract quality score (looking for patterns like "0.75" or "75")
+        quality_matches = re.findall(r'quality.*?(\d+\.?\d*)', response_content, re.IGNORECASE)
+        if quality_matches:
+            quality_val = float(quality_matches[0])
+            quality_score = quality_val if quality_val <= 1.0 else quality_val / 100.0
+        
+        # Extract confidence (looking for patterns like "0.85" or "85")
+        confidence_matches = re.findall(r'confidence.*?(\d+\.?\d*)', response_content, re.IGNORECASE)
+        if confidence_matches:
+            conf_val = float(confidence_matches[0])
+            confidence_level = conf_val if conf_val <= 1.0 else conf_val / 100.0
+        
+        # Extract key strengths/insights
+        strengths_section = re.search(r'(?:key strengths|strengths):(.+?)(?:areas for improvement|improvements|recommendations|expert perspective|$)', 
+                                    response_content, re.IGNORECASE | re.DOTALL)
+        if strengths_section:
+            strengths_text = strengths_section.group(1)
+            strengths = re.findall(r'[•\-\*]?\s*([^\n]+)', strengths_text)
+            key_insights = [s.strip() for s in strengths if s.strip() and len(s.strip()) > 5][:3]
+        
+        # Extract recommendations
+        rec_section = re.search(r'(?:specific recommendations|recommendations):(.+?)(?:expert perspective|quality score|confidence|$)', 
+                              response_content, re.IGNORECASE | re.DOTALL)
+        if rec_section:
+            rec_text = rec_section.group(1)
+            recs = re.findall(r'[•\-\*]?\s*([^\n]+)', rec_text)
+            recommendations = [r.strip() for r in recs if r.strip() and len(r.strip()) > 5][:5]
+        
+        # Extract areas for improvement as additional insights
+        improvements_section = re.search(r'(?:areas for improvement|improvements):(.+?)(?:specific recommendations|recommendations|expert perspective|$)', 
+                                       response_content, re.IGNORECASE | re.DOTALL)
+        if improvements_section:
+            imp_text = improvements_section.group(1)
+            improvements = re.findall(r'[•\-\*]?\s*([^\n]+)', imp_text)
+            # Add to insights if not already full
+            for imp in improvements:
+                if len(key_insights) < 5 and imp.strip() and len(imp.strip()) > 5:
+                    key_insights.append(f"Area for improvement: {imp.strip()}")
+        
+        # Create CritiqueResult object
+        return CritiqueResult(
+            persona_name=persona_config.name,
+            persona_type=persona_config.persona_type,
+            model_used=persona_config.preferred_model,
+            quality_score=quality_score,
+            key_insights=key_insights or ["Document analysis completed"],
+            recommendations=recommendations or ["See detailed response for recommendations"],
+            confidence_level=confidence_level,
+            critique_text=response_content,
+            red_flags_identified=red_flags,
+            expertise_match=0.8,  # Default for document critique
+            authentic_language_used=True,
+            execution_time_ms=0.0,  # Will be set by caller if needed
+            token_count=len(response_content.split()) * 1.3,  # Rough estimate
+            estimated_cost=0.0
+        )

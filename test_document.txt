@@ -1,0 +1,29 @@
+AI Agent Development Brief: Document Critique Mode Enhancement
+
+## Mission Objective
+
+This document outlines the implementation of a document critique mode for the existing critique CLI tool. The goal is to enable direct AI review of human-authored files without the content generation phase.
+
+## Key Features
+
+1. **Direct Document Input**: Accept local files for critique
+2. **Multiple AI Critics**: Support for various AI models to provide feedback
+3. **Single Iteration**: No iterative loops - one critique round only
+4. **Robust File Handling**: Support for various file types and encodings
+
+## Technical Implementation
+
+The implementation includes:
+- DocumentReader class for robust file reading
+- New CLI command structure with 'document' subcommand
+- Integration with existing persona and model infrastructure
+- Comprehensive error handling and validation
+
+## Benefits
+
+- Faster feedback on existing documents
+- No content generation costs
+- Leverages existing AI expertise
+- Maintains backward compatibility
+
+This enhancement transforms the tool from a pure content generation utility into a versatile document review platform. 

@@ -4,7 +4,7 @@ import os
 import json
 from unittest.mock import MagicMock
 
-from llm_critique.core.config import LLMConfig
+from llm_critique.config import Config as LLMConfig
 
 
 @pytest.fixture
@@ -15,11 +15,11 @@ def test_config():
         anthropic_api_key="test-anthropic-key",
         google_api_key="test-google-key",
         default_models=["gpt-4", "claude-3-opus", "gemini-pro"],
-        default_resolver="gpt-4",
+        default_creator="gpt-4",
         max_iterations=3,
         confidence_threshold=0.8,
-        timeout=30,
-        log_dir="test_logs"
+        timeout_seconds=30,
+        log_directory="test_logs"
     )
 
 

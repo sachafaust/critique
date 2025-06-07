@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  llm-critique:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: llm-critique
+    restart: unless-stopped
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    
+    # Environment variables
+    environment:
+      - LLM_CRITIQUE_LOG_LEVEL=INFO
+      - LLM_CRITIQUE_LOG_FORMAT=json
+      - LLM_CRITIQUE_MAX_INPUT_TOKENS=8000
+      - LLM_CRITIQUE_MAX_OUTPUT_TOKENS=2000
+      - LLM_CRITIQUE_MAX_COST_PER_REQUEST=1.0
+      - LLM_CRITIQUE_ENABLE_METRICS=true
+      - LLM_CRITIQUE_METRICS_PORT=8080
+      
+    # Secrets from environment or .env file
+    env_file:
+      - .env
+    
+    # Expose metrics port
+    ports:
+      - "8080:8080"
+    
+    # Volume mounts
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "/entrypoint.sh", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    
+    # Networking
+    networks:
+      - llm-critique-net
+
+  # Optional: Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: llm-critique-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - llm-critique-net
+    profiles:
+      - monitoring
+
+  # Optional: Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: llm-critique-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana:/etc/grafana/provisioning
+    networks:
+      - llm-critique-net
+    profiles:
+      - monitoring
+
+networks:
+  llm-critique-net:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data: 

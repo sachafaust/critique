@@ -12,6 +12,7 @@ import os
 import yaml
 import uuid
 import copy
+import chardet
 
 from .config import Config, load_config
 from .logging.setup import setup_logging, log_execution
@@ -19,6 +20,14 @@ from .core.models import LLMClient
 from .core.synthesis import ResponseSynthesizer
 from .core.conversation import ConversationManager
 from .core.personas import UnifiedPersonaManager, PersonaType
+from .core.resilience import (
+    with_retry, with_timeout, with_circuit_breaker, 
+    RetryConfig, GracefulErrorHandler, api_circuit_breaker
+)
+from .core.monitoring import (
+    setup_monitoring, operation_context, timed_operation,
+    MetricsCollector, HealthChecker, logger
+)
 
 # Install rich traceback handler
 install()
@@ -637,44 +646,88 @@ def _make_json_serializable(obj):
         # Return as-is for basic types (str, int, float, bool, None)
         return obj
 
-@click.command()
-@click.argument('prompt', required=False)
-@click.option('-f', '--file', help='Read prompt from file')
-@click.option('--creator-persona', help='Expert persona or model for content creation (e.g., steve_jobs or gpt-4o)')
-@click.option('--creator-model', help='[DEPRECATED] Use --creator-persona instead. Model for content creation (e.g., gpt-4o)', hidden=True)
-@click.option('--critique-models', help='Comma-separated critic models (e.g., claude-3-sonnet,gemini-pro)')
-@click.option('--personas', help='Comma-separated list of expert personas or "all" for all personas (e.g., ray_dalio,steve_jobs or all)')
-@click.option('--personas-model', help='Global model to use for all personas when using --personas (e.g., o1)')
-@click.option('--format', type=click.Choice(['human', 'json']), default='human')
+class DocumentReader:
+    """Handles reading various document types with robust encoding detection."""
+    
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB limit
+    
+    @classmethod
+    def read_document(cls, file_path: str) -> str:
+        """Read a document file with robust error handling and encoding detection."""
+        file_path = Path(file_path)
+        
+        # Validate file exists
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        # Check file size
+        file_size = file_path.stat().st_size
+        if file_size > cls.MAX_FILE_SIZE:
+            raise ValueError(f"File too large: {file_size / (1024*1024):.1f}MB (max: {cls.MAX_FILE_SIZE / (1024*1024):.0f}MB)")
+        
+        # Read and detect encoding
+        try:
+            # First, try to detect encoding by reading a sample
+            with open(file_path, 'rb') as f:
+                raw_sample = f.read(min(8192, file_size))  # Read up to 8KB for detection
+            
+            # Detect encoding
+            detected = chardet.detect(raw_sample)
+            encoding = detected.get('encoding', 'utf-8') if detected else 'utf-8'
+            
+            # Common encoding fallbacks
+            encodings_to_try = [
+                encoding,  # Detected encoding first
+                'utf-8',
+                'utf-8-sig',  # UTF-8 with BOM
+                'latin1',
+                'cp1252',  # Windows encoding
+                'ascii'
+            ]
+            
+            # Remove duplicates while preserving order
+            encodings_to_try = list(dict.fromkeys(encodings_to_try))
+            
+            content = None
+            used_encoding = None
+            
+            for enc in encodings_to_try:
+                try:
+                    with open(file_path, 'r', encoding=enc) as f:
+                        content = f.read()
+                    used_encoding = enc
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+            
+            if content is None:
+                # Last resort: read as binary and extract readable text
+                console.print(f"[yellow]Warning: Could not decode file with standard encodings. Extracting readable text.[/yellow]")
+                with open(file_path, 'rb') as f:
+                    raw_content = f.read()
+                content = ''.join(chr(byte) if 32 <= byte <= 126 else ' ' for byte in raw_content)
+                content = ' '.join(content.split())  # Clean up whitespace
+                used_encoding = 'binary-extraction'
+            
+            if not content.strip():
+                raise ValueError("File appears to be empty or contains no readable text")
+            
+            return content.strip()
+            
+        except Exception as e:
+            if isinstance(e, (FileNotFoundError, ValueError)):
+                raise
+            raise RuntimeError(f"Error reading file '{file_path}': {e}")
+
+@click.group()
 @click.option('--debug', is_flag=True, help='Enable debug logging')
 @click.option('--config', help='Custom config file path')
-@click.option('--iterations', type=int, default=1, help='Number of creator-critic iterations')
-@click.option('--listen', help='Save conversation to file for replay')
-@click.option('--replay', help='Replay conversation from file')
 @click.option('--list-models', is_flag=True, help='List all supported models and exit')
-@click.option('--est-cost', is_flag=True, help='Estimate cost without running (requires prompt and models)')
 @click.option('--list-personas', is_flag=True, help='List all available personas and exit')
 @click.option('--persona-info', help='Display detailed information about a specific persona')
 @click.version_option()
-def cli(
-    prompt: Optional[str],
-    file: Optional[str],
-    creator_persona: Optional[str],
-    creator_model: Optional[str],
-    critique_models: Optional[str],
-    personas: Optional[str],
-    personas_model: Optional[str],
-    format: str,
-    debug: bool,
-    config: Optional[str],
-    iterations: int,
-    listen: Optional[str],
-    replay: Optional[str],
-    list_models: bool,
-    est_cost: bool,
-    list_personas: bool,
-    persona_info: Optional[str]
-):
+@click.pass_context
+def cli(ctx, debug: bool, config: Optional[str], list_models: bool, list_personas: bool, persona_info: Optional[str]):
     """Multi-LLM critique and synthesis tool with creator-critic iteration.
     
     🎭 EXPERT PERSONAS vs 🤖 VANILLA MODELS:
@@ -684,50 +737,165 @@ def cli(
     
     📋 USAGE PATTERNS:
     
+    1️⃣ CLASSIC CREATOR-CRITIC WORKFLOW:
+    llm-critique critique "Your prompt" --creator-persona elon_musk --personas steve_jobs,ray_dalio
+    
+    2️⃣ DOCUMENT CRITIQUE (NEW):
+    llm-critique document --file document.txt --critique-models claude-4-sonnet,gpt-4o
+    
+    🔧 KEY COMMANDS:
+    critique    Creator-critic iteration workflow (default/existing behavior)
+    document    Direct document critique without content creation
+    
+    📖 DISCOVERY:
+    --list-personas    # See all expert personas
+    --list-models      # See all supported models (OpenAI, Anthropic, Google, X AI)
+    --persona-info steve_jobs  # Get persona details
+    
+    🔑 API KEYS REQUIRED:
+    Set environment variables: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, XAI_API_KEY
+    """
+    # Ensure context object exists
+    ctx.ensure_object(dict)
+    
+    # Store common options in context
+    ctx.obj['debug'] = debug
+    ctx.obj['config'] = config
+    
+    # Initialize monitoring
+    try:
+        config_obj = load_config(config)
+        setup_monitoring(config_obj)
+        logger.info("LLM Critique CLI started", debug=debug, config_path=config)
+    except Exception as e:
+        if debug:
+            console.print(f"[yellow]Warning: Failed to initialize monitoring: {e}[/yellow]")
+    
+    # Handle global flags that should work from root command
+    if list_models:
+        display_available_models()
+        ctx.exit()
+    
+    if list_personas:
+        config_obj = load_config(config)
+        display_available_personas(config_obj)
+        ctx.exit()
+    
+    if persona_info:
+        config_obj = load_config(config)
+        display_persona_info(persona_info, config_obj)
+        ctx.exit()
+
+
+@cli.command()
+@click.argument('prompt', required=False)
+@click.option('-f', '--file', help='Read prompt from file')
+@click.option('--creator-persona', help='Expert persona or model for content creation (e.g., steve_jobs or gpt-4o)')
+@click.option('--creator-model', help='[DEPRECATED] Use --creator-persona instead. Model for content creation (e.g., gpt-4o)', hidden=True)
+@click.option('--critique-models', help='Comma-separated critic models (e.g., claude-3-sonnet,gemini-pro)')
+@click.option('--personas', help='Comma-separated list of expert personas or "all" for all personas (e.g., ray_dalio,steve_jobs or all)')
+@click.option('--personas-model', help='Global model to use for all personas when using --personas (e.g., o1)')
+@click.option('--format', type=click.Choice(['human', 'json']), default='human')
+@click.option('--iterations', type=int, default=1, help='Number of creator-critic iterations')
+@click.option('--listen', help='Save conversation to file for replay')
+@click.option('--replay', help='Replay conversation from file')
+@click.option('--est-cost', is_flag=True, help='Estimate cost without running (requires prompt and models)')
+@click.pass_context
+@with_retry(RetryConfig(max_attempts=2, initial_delay=0.5))
+@with_circuit_breaker(api_circuit_breaker)  
+def critique(
+    ctx,
+    prompt: Optional[str],
+    file: Optional[str],
+    creator_persona: Optional[str],
+    creator_model: Optional[str],
+    critique_models: Optional[str],
+    personas: Optional[str],
+    personas_model: Optional[str],
+    format: str,
+    iterations: int,
+    listen: Optional[str],
+    replay: Optional[str],
+    est_cost: bool
+):
+    """Creator-critic iteration workflow (classic mode).
+    
+    🎭 EXPERT PERSONAS vs 🤖 VANILLA MODELS:
+    
+    • Expert personas (steve_jobs, ray_dalio, etc.): Rich personality, expertise, thinking patterns
+    • Vanilla models (gpt-4o, claude-4-sonnet, grok-beta, etc.): Standard AI models without personality
+    
+    📋 USAGE PATTERNS:
+    
     1️⃣ EXPERT CREATOR + EXPERT CRITICS:
-    python -m llm_critique.main \"Your prompt\" \\
-      --creator-persona elon_musk \\
-      --personas steve_jobs,ray_dalio
+    llm-critique critique "Your prompt" \\
+        --creator-persona elon_musk \\
+        --personas steve_jobs,ray_dalio
     
     2️⃣ EXPERT CREATOR + EXPERT CRITICS (with global model override):
-    python -m llm_critique.main \"Your prompt\" \\
-      --creator-persona elon_musk \\
-      --personas steve_jobs,ray_dalio \\
-      --personas-model o3-mini
+    llm-critique critique "Your prompt" \\
+        --creator-persona elon_musk \\
+        --personas steve_jobs,ray_dalio \\
+        --personas-model o3-mini
     
     3️⃣ VANILLA CREATOR + VANILLA CRITICS:
-    python -m llm_critique.main \"Your prompt\" \\
-      --creator-persona gpt-4o \\
-      --critique-models claude-4-sonnet,grok-beta
+    llm-critique critique "Your prompt" \\
+        --creator-persona gpt-4o \\
+        --critique-models claude-4-sonnet,grok-beta
     
     4️⃣ EXPERT CREATOR + VANILLA CRITICS:
-    python -m llm_critique.main \"Your prompt\" \\
-      --creator-persona steve_jobs \\
-      --critique-models gpt-4o,gemini-2.0-flash
+    llm-critique critique "Your prompt" \\
+        --creator-persona steve_jobs \\
+        --critique-models gpt-4o,gemini-2.0-flash
     
     5️⃣ ALL PERSONAS (with model override):
-    python -m llm_critique.main \"Your prompt\" \\
-      --creator-persona elon_musk \\
-      --personas all \\
-      --personas-model grok-3
+    llm-critique critique "Your prompt" \\
+        --creator-persona elon_musk \\
+        --personas all \\
+        --personas-model grok-3
     
     🔧 KEY RULES:
     • --personas and --critique-models are mutually exclusive
     • --personas-model only works with --personas (overrides all)
     • --personas all requires --personas-model
     
-    📖 DISCOVERY:
-    --list-personas    # See all expert personas
-    --list-models      # See all supported models (OpenAI, Anthropic, Google, X AI)
-    --persona-info steve_jobs  # Get persona details
-    --est-cost         # Estimate workflow cost
-    
-    🔑 API KEYS REQUIRED:
-    Set environment variables: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, XAI_API_KEY
+    💡 TIP: Use 'llm-critique document' for direct document critique without content creation
     """
+    
+    # Early validation to guide users away from common mistakes (show guidance and exit)
+    if file and file.endswith(('.pdf', '.doc', '.docx', '.md', '.txt', '.py', '.js', '.html', '.css', '.json', '.yaml', '.yml', '.xml', '.csv', '.sql', '.sh', '.rtf')):
+        # Check if this looks like they want document critique instead of using file as prompt
+        if not prompt:
+            # Allow disabling guidance for CI/CD and automation environments
+            import os
+            if not os.environ.get('LLM_CRITIQUE_DISABLE_GUIDANCE', '').lower() in ('true', '1', 'yes'):
+                console.print(Panel.fit(
+                    "[bold yellow]💡 Usage Guidance[/bold yellow]\n\n"
+                    "[bold]Current command:[/bold] [dim]critique --file[/dim] (reads file content as a prompt for AI to expand on)\n"
+                    "[bold]Likely intended:[/bold] [cyan]document --file[/cyan] (critiques the document directly)\n\n"
+                    "[bold]🎯 For document critique, run this instead:[/bold]\n"
+                    f"[green]python -m llm_critique.main document --file \"{file}\" --personas elon_musk,satya_nadella[/green]\n\n"
+                    "[bold]📝 What critique --file does:[/bold]\n"
+                    f"• Read content from: [cyan]{file}[/cyan]\n"
+                    "• Use it as a prompt for AI content creation\n"
+                    "• Then critique the AI-generated content\n\n"
+                    "💡 Use [cyan]--help[/cyan] on each command to see the differences",
+                    title="[bold yellow]Command Suggestion[/bold yellow]",
+                    border_style="yellow"
+                ))
+                console.print("\n[bold green]✅ Copy the suggested command above to critique your document directly.[/bold green]")
+                return
+            else:
+                # Silent mode for automation - just continue
+                pass
     
     async def run_async():
         nonlocal prompt, creator_persona, creator_model  # Allow modification of these variables
+        
+        # Get debug and config from context
+        current_ctx = click.get_current_context()
+        debug = current_ctx.obj.get('debug', False) if current_ctx.obj else False
+        config = current_ctx.obj.get('config') if current_ctx.obj else None
         
         # Handle backward compatibility for --creator-model
         if creator_model and not creator_persona:
@@ -739,7 +907,8 @@ def cli(
 
         # Show help if no meaningful arguments provided
         # Note: iterations has default=1, so we exclude it from this check
-        meaningful_args = [prompt, file, creator_persona, critique_models, config, listen, replay, list_models, est_cost, debug, personas, list_personas, persona_info]
+        # Global options (list_models, list_personas, persona_info) are handled at CLI group level, so not checked here
+        meaningful_args = [prompt, file, creator_persona, critique_models, config, listen, replay, est_cost, debug, personas]
         if not any(meaningful_args):
             ctx = click.get_current_context()
             click.echo(ctx.get_help())
@@ -766,22 +935,8 @@ def cli(
             # Load configuration (needed for persona system and cost estimation)
             config_obj = load_config(config)
             
-            # Handle persona-specific commands first
-            if list_personas:
-                display_available_personas(config_obj)
-                return
-            
-            if persona_info:
-                display_persona_info(persona_info, config_obj)
-                return
-            
             # Validate mutually exclusive arguments
             if not validate_persona_arguments(personas, critique_models, personas_model):
-                return
-            
-            # List available models if requested
-            if list_models:
-                display_available_models()
                 return
             
             # Get available models once
@@ -1146,15 +1301,601 @@ def cli(
     # Run the async function
     asyncio.run(run_async())
 
+
+@cli.command()
+@click.option('--file', required=True, help='Path to document file to critique')
+@click.option('--critique-models', help='Comma-separated critic models (e.g., claude-3-sonnet,gemini-pro)')
+@click.option('--personas', help='Comma-separated list of expert personas or "all" for all personas (e.g., ray_dalio,steve_jobs or all)')
+@click.option('--personas-model', help='Global model to use for all personas when using --personas (e.g., o1)')
+@click.option('--format', type=click.Choice(['human', 'json']), default='human')
+@click.option('--listen', help='Save conversation to file for replay')
+@click.option('--est-cost', is_flag=True, help='Estimate cost without running (requires file and models)')
+@click.pass_context
+@with_retry(RetryConfig(max_attempts=2, initial_delay=0.5))
+@with_circuit_breaker(api_circuit_breaker)
+def document(
+    ctx,
+    file: str,
+    critique_models: Optional[str],
+    personas: Optional[str],
+    personas_model: Optional[str],
+    format: str,
+    listen: Optional[str],
+    est_cost: bool
+):
+    """Direct document critique without content creation.
+    
+    📄 DOCUMENT CRITIQUE MODE:
+    
+    This mode skips the AI content creation phase and directly sends your document to 
+    AI critics for feedback. Perfect for reviewing existing papers, code, proposals, 
+    reports, and any other documents.
+    
+    📋 USAGE PATTERNS:
+    
+    1️⃣ VANILLA MODEL CRITIQUE:
+    llm-critique document --file paper.txt --critique-models claude-4-sonnet,gpt-4o
+    
+    2️⃣ EXPERT PERSONA CRITIQUE:
+    llm-critique document --file proposal.md --personas steve_jobs,ray_dalio
+    
+    3️⃣ ALL EXPERT PERSONAS:
+    llm-critique document --file code.py --personas all --personas-model gpt-4o
+    
+    🔧 KEY FEATURES:
+    • Single critique round - no iterations
+    • Supports any file type (text, markdown, PDF, code files)
+    • Same output formats as classic critique mode
+    • Cost estimation with --est-cost
+    
+    📁 SUPPORTED FILES:
+    • Text files (.txt, .md, .py, .js, .html, etc.)
+    • Documents (.doc, .pdf - extracted as plain text)
+    • Any file with readable text content
+    • File size limit: 50MB
+    
+    💡 TIP: Use 'llm-critique critique' for creator-critic iteration workflow
+    """
+    
+    # Detect if user accidentally used creator-focused arguments
+    creator_args_used = []
+    
+    # Check for arguments that don't make sense in document mode
+    # We need to check sys.argv since Click doesn't provide a way to detect unused arguments
+    import sys
+    for i, arg in enumerate(sys.argv):
+        if arg in ['--creator-persona', '--creator-model', '--iterations']:
+            creator_args_used.append(arg)
+            if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith('--'):
+                creator_args_used.append(sys.argv[i + 1])
+    
+    if creator_args_used:
+        console.print(Panel.fit(
+            "[bold red]❌ Incompatible arguments detected![/bold red]\n\n"
+            f"[bold]Arguments not valid for document mode:[/bold] [red]{' '.join(creator_args_used)}[/red]\n\n"
+            "[bold]Document mode overview:[/bold]\n"
+            "• [cyan]document[/cyan] = Direct critique of existing files (no content creation)\n"
+            "• [green]critique[/green] = AI creates content, then critics review it\n\n"
+            "[bold]Did you mean to use 'critique' mode instead?[/bold]\n"
+            f"[green]python -m llm_critique.main critique \"Analyze this document\" --file \"{file}\" --creator-persona steve_jobs --personas ray_dalio[/green]\n\n"
+            "[bold]Or continue with document mode:[/bold]\n"
+            f"[cyan]python -m llm_critique.main document --file \"{file}\" --personas elon_musk,satya_nadella[/cyan]\n\n"
+            "💡 Use [cyan]--help[/cyan] on each command to see all options",
+            title="[bold red]Usage Error[/bold red]",
+            border_style="red"
+        ))
+        return
+    
+    # Validate file exists and is readable
+    if not os.path.exists(file):
+        console.print(f"[red]❌ Error: File not found: {file}[/red]")
+        console.print("\n[bold]💡 Tips:[/bold]")
+        console.print("• Check the file path is correct")
+        console.print("• Use quotes around paths with spaces")
+        console.print("• Ensure you have read permissions")
+        return
+    
+    try:
+        # Quick file validation
+        file_size = os.path.getsize(file)
+        if file_size > DocumentReader.MAX_FILE_SIZE:
+            console.print(f"[red]❌ Error: File too large ({file_size / (1024*1024):.1f}MB). Maximum size: {DocumentReader.MAX_FILE_SIZE / (1024*1024):.0f}MB[/red]")
+            return
+        elif file_size == 0:
+            console.print(f"[red]❌ Error: File is empty: {file}[/red]")
+            return
+    except Exception as e:
+        console.print(f"[red]❌ Error accessing file: {e}[/red]")
+        return
+
+    async def run_document_critique():
+        # Get debug and config from context
+        debug = ctx.obj.get('debug', False)
+        config = ctx.obj.get('config')
+        
+        # Create unique execution ID
+        execution_id = str(uuid.uuid4())[:8]
+
+        # Set up logging
+        logger = setup_logging(
+            level="DEBUG" if debug else "INFO",
+            format_type="json",
+            trace_id=execution_id,
+            log_dir="./logs"
+        )
+
+        try:
+            # Load configuration
+            config_obj = load_config(config)
+            
+            # Validate mutually exclusive arguments
+            if not validate_persona_arguments(personas, critique_models, personas_model):
+                return
+            
+            # Get available models
+            available_models = get_available_models()
+            
+            # Check if we have any API keys at all
+            if not available_models:
+                console.print("[red]❌ No API keys found[/red]")
+                console.print("Please set at least one API key in your .env file:")
+                console.print("• OPENAI_API_KEY")  
+                console.print("• ANTHROPIC_API_KEY")
+                console.print("• GOOGLE_API_KEY")
+                console.print("• XAI_API_KEY")
+                console.print()
+                console.print("See env.example for guidance")
+                return
+            
+            # Read document
+            try:
+                console.print(f"[cyan]📄 Reading document: {file}[/cyan]")
+                document_content = DocumentReader.read_document(file)
+                console.print(f"[green]✓ Document loaded: {len(document_content)} characters[/green]")
+                if debug:
+                    console.print(f"[dim]Document preview: {document_content[:200]}...[/dim]")
+            except Exception as e:
+                console.print(f"[red]❌ Error reading file: {e}[/red]")
+                return
+            
+            # Initialize persona manager
+            persona_manager = UnifiedPersonaManager(config_obj=config_obj)
+            
+            # Determine if we have explicit CLI arguments (either personas or critique models)
+            has_cli_personas = bool(personas)
+            has_cli_models = bool(critique_models)
+            
+            # Validate that we have some form of critique specification
+            if not has_cli_personas and not has_cli_models:
+                # Check if config has valid defaults
+                config_is_valid = validate_config_models(config_obj, available_models, debug)
+                if not config_is_valid:
+                    console.print()
+                    console.print(Panel.fit(
+                        "[bold red]❌ Critique Configuration Required[/bold red]\n\n"
+                        "[bold]🎭 EXPERT PERSONAS (rich personality & expertise):[/bold]\n"
+                        "[cyan]Basic expert setup:[/cyan] --personas steve_jobs,ray_dalio\n"
+                        "[cyan]All personas:[/cyan] --personas all --personas-model o3-mini\n"
+                        "[cyan]Model override:[/cyan] --personas ray_dalio --personas-model claude-4-sonnet\n\n"
+                        
+                        "[bold]🤖 VANILLA MODELS (standard AI without personality):[/bold]\n"
+                        "[cyan]Basic vanilla setup:[/cyan] --critique-models claude-4-sonnet,gemini-pro\n\n"
+                        
+                        "[bold]🔧 KEY RULES:[/bold]\n"
+                        "• --personas and --critique-models are mutually exclusive\n"
+                        "• --personas-model only works with --personas (overrides all)\n"
+                        "• --personas all requires --personas-model\n\n"
+                        
+                        "[bold]📖 DISCOVERY:[/bold]\n"
+                        "[cyan]See options:[/cyan] --list-personas --list-models\n"
+                        "[cyan]Get details:[/cyan] --persona-info steve_jobs\n"
+                        "[cyan]Estimate cost:[/cyan] --est-cost\n\n"
+                        
+                        "[bold]📄 CONFIG FILE (alternative):[/bold]\n"
+                        "1. Copy: [dim]cp config.yaml.example config.yaml[/dim]\n"
+                        "2. Edit config.yaml with preferred models\n"
+                        "3. Run without specifying models",
+                        border_style="red"
+                    ))
+                    return
+
+            # Handle persona-based critiques vs vanilla model critiques
+            critics_to_use = []
+            
+            if has_cli_personas:
+                # Handle --personas all case
+                if personas.strip().lower() == "all":
+                    # Get all available personas (excluding template)
+                    all_personas = persona_manager.list_available_personas()
+                    requested_personas = [p for p in all_personas["expert_personas"] if p != "persona_template"]
+                    console.print(f"[cyan]🎭 Using all {len(requested_personas)} available personas with model {personas_model}[/cyan]")
+                    if debug:
+                        console.print(f"[dim]Personas: {', '.join(requested_personas)}[/dim]")
+                else:
+                    # Parse specific personas
+                    requested_personas = [p.strip() for p in personas.split(',')]
+                
+                print_debug_info(debug, requested_personas=requested_personas, personas_model=personas_model)
+                
+                # Validate personas-model is available if specified
+                if personas_model and personas_model not in available_models:
+                    display_helpful_model_error(personas_model, available_models)
+                    return
+                
+                validation_result = persona_manager.validate_persona_combination(requested_personas, global_model_override=personas_model)
+                
+                if not validation_result["valid"]:
+                    console.print("[red]❌ Persona validation failed:[/red]")
+                    for error in validation_result["errors"]:
+                        console.print(f"  • {error}")
+                    return
+                
+                # Show warnings if any
+                for warning in validation_result["warnings"]:
+                    console.print(f"[yellow]⚠️  {warning}[/yellow]")
+                
+                # Create critics from personas
+                for persona_name in requested_personas:
+                    try:
+                        # Use the model_override parameter to avoid warnings
+                        model_override = personas_model if has_cli_personas else None
+                        persona_config = persona_manager.get_persona(persona_name, model_override=model_override)
+                        
+                        critics_to_use.append({
+                            "name": persona_config.name,
+                            "type": "persona",
+                            "config": persona_config
+                        })
+                    except Exception as e:
+                        console.print(f"[red]Error loading persona '{persona_name}': {e}[/red]")
+                        return
+                
+                if not critics_to_use:
+                    console.print("[red]Error: No valid personas could be loaded[/red]")
+                    return
+            else:
+                # Parse vanilla models (backward compatibility)
+                if critique_models:
+                    requested_models = [m.strip() for m in critique_models.split(',')]
+                    print_debug_info(debug, requested_models=requested_models)
+                    models_to_use = [m for m in requested_models if m in available_models]
+                    
+                    # Warn about unavailable models
+                    unavailable = [m for m in requested_models if m not in available_models]
+                    if unavailable:
+                        console.print(f"[yellow]Warning: Models not available: {', '.join(unavailable)}[/yellow]")
+                    
+                    if not models_to_use:
+                        console.print("[red]Error: No critic models available from your selection[/red]")
+                        console.print(f"Available models: {', '.join(available_models)}")
+                        return
+                else:
+                    # Use validated config models  
+                    models_to_use = [m for m in config_obj.default_models if m in available_models]
+                
+                # Create vanilla critics from models
+                for model_name in models_to_use:
+                    try:
+                        persona_config = persona_manager.create_vanilla_persona(model_name)
+                        critics_to_use.append({
+                            "name": model_name,
+                            "type": "vanilla",
+                            "config": persona_config
+                        })
+                    except Exception as e:
+                        console.print(f"[red]Error creating vanilla persona for '{model_name}': {e}[/red]")
+                        return
+            
+            # Handle cost estimation for document mode
+            if est_cost:
+                estimate_document_cost(document_content, critics_to_use, config_obj, debug)
+                return
+            
+            print_debug_info(debug, 
+                critics_to_use=[c["name"] for c in critics_to_use],
+                document_file=file,
+                document_length=len(document_content),
+                using_personas=has_cli_personas
+            )
+            
+            # Save conversation start for document mode
+            conversation_manager = ConversationManager() if listen else None
+            if conversation_manager:
+                # Initialize conversation recording for document critique
+                critic_names = [c["name"] for c in critics_to_use] if critics_to_use else []
+                
+                conversation_manager.start_recording(
+                    prompt=f"Document critique: {file}",
+                    models=critic_names,
+                    creator_model="document_mode",  # Special marker for document mode
+                    creator_persona="document_reader"
+                )
+            
+            # Initialize LLM client and synthesizer
+            llm_client = LLMClient(config_obj)
+            
+            # Execute document critique using existing synthesis infrastructure
+            from .core.synthesis import PersonaAwareSynthesizer
+            synthesizer = PersonaAwareSynthesizer(
+                llm_client=llm_client,
+                persona_manager=persona_manager,
+                max_iterations=1,  # Single round for document critique
+                confidence_threshold=config_obj.confidence_threshold
+            )
+            
+            # Execute document critique workflow
+            results = await synthesizer.synthesize_document_critique(
+                document_content=document_content,
+                document_path=file,
+                persona_configs=[c["config"] for c in critics_to_use],
+                output_format=format
+            )
+            
+            # Record model responses for document mode
+            if conversation_manager:
+                # Extract data for recording
+                workflow_results = results["results"]["workflow_results"]
+                input_info = results["input"]
+                performance = results["performance"]
+                quality_metrics = results["quality_metrics"]
+                
+                # Record iteration header for document mode
+                conversation_manager.record_iteration_start(
+                    total_iterations=1,
+                    convergence=True,  # Single iteration always "converges"
+                    creator_model="document_mode",
+                    critic_models=input_info["personas"]
+                )
+                
+                # Record the document critique iteration
+                iteration = workflow_results["iterations"][0] if workflow_results["iterations"] else {}
+                
+                # Extract critics feedback in the expected format
+                critics_feedback = []
+                for critique in iteration.get("persona_critiques", []):
+                    feedback_dict = {
+                        "persona_name": critique.persona_name,
+                        "persona_type": critique.persona_type.value,
+                        "quality_score": critique.quality_score,
+                        "strengths": critique.key_insights[:2] if critique.key_insights else [],
+                        "improvements": critique.recommendations[:2] if critique.recommendations else [],
+                        "decision": "Complete",  # Document critique is always complete in one round
+                        "detailed_feedback": critique.critique_text
+                    }
+                    critics_feedback.append(feedback_dict)
+                
+                # Record the document critique iteration
+                conversation_manager.record_iteration(
+                    iteration_num=1,
+                    creator_output=f"Document: {file}\n\n{document_content[:500]}...",
+                    creator_confidence=100.0,  # Document is "perfectly confident" 
+                    creator_model="document_mode",
+                    critics_feedback=critics_feedback
+                )
+                
+                # Record final results
+                conversation_manager.record_final_results(
+                    final_answer=results["results"]["final_answer"],
+                    confidence=quality_metrics["average_confidence"] * 100,
+                    quality=quality_metrics.get("persona_consensus", 0.85) * 100,
+                    duration=performance["total_duration_ms"] / 1000,
+                    cost=performance["estimated_cost_usd"],
+                    execution_id=results["execution_id"],
+                    models_used=input_info["personas"],
+                    creator_model="document_mode"
+                )
+            
+            # Save conversation
+            if listen and conversation_manager:
+                try:
+                    conversation_manager.save_conversation(listen)
+                except Exception as conv_error:
+                    console.print(f"[yellow]Warning: Could not save conversation: {conv_error}[/yellow]")
+                    if debug:
+                        console.print(f"[dim]Conversation save error details: {traceback.format_exc()}[/dim]")
+
+            # Return JSON output if requested
+            if format == "json":
+                try:
+                    json_output = _make_json_serializable(results)
+                    print(json.dumps(json_output, indent=2))
+                except Exception as json_error:
+                    console.print(f"[red]Error serializing JSON output: {json_error}[/red]")
+                    basic_results = {
+                        "execution_id": str(results.get("execution_id", "unknown")),
+                        "final_answer": results.get("results", {}).get("final_answer", "Error serializing results"),
+                        "error": "JSON serialization failed"
+                    }
+                    print(json.dumps(basic_results, indent=2))
+            
+            # Log successful execution
+            if debug:
+                console.print(f"[dim]Document critique execution ID: {execution_id}[/dim]")
+                console.print(f"[dim]Critics used: {[c['name'] for c in critics_to_use]}[/dim]")
+                console.print(f"[dim]Document: {file} ({len(document_content)} chars)[/dim]")
+                console.print(f"[dim]Mode: {'personas' if has_cli_personas else 'vanilla'}[/dim]")
+
+        except Exception as e:
+            if debug:
+                console.print(f"[red]Error details: {traceback.format_exc()}[/red]")
+            else:
+                console.print(f"[red]Error: {str(e)}[/red]")
+            
+            # Log failed execution with available context
+            if debug:
+                console.print(f"[dim]Failed document critique execution ID: {execution_id}[/dim]")
+                console.print(f"[dim]Error: {str(e)}[/dim]")
+            
+            raise click.Abort()
+
+    # Run the async function
+    asyncio.run(run_document_critique())
+
+
+def estimate_document_cost(document_content: str, critics_to_use: List[dict], config_obj, debug: bool) -> None:
+    """Estimate the cost of document critique without executing it."""
+    from rich.table import Table
+    from rich.panel import Panel
+    
+    try:
+        # Initialize LLM client for cost calculation
+        from .core.models import LLMClient
+        llm_client = LLMClient(config_obj)
+        
+        # Estimate token counts
+        input_tokens = estimate_tokens(document_content)
+        critic_output_tokens_per_response = 300  # Typical document critique feedback
+        
+        total_cost = 0.0
+        
+        console.print()
+        console.print(Panel.fit(
+            "[bold blue]💰 Document Critique Cost Estimation[/bold blue]",
+            border_style="blue"
+        ))
+        console.print()
+        
+        # Display input details
+        info_table = Table(title="Document Configuration", show_header=True, header_style="bold magenta")
+        info_table.add_column("Parameter", style="cyan")
+        info_table.add_column("Value", style="green")
+        
+        info_table.add_row("Document length", f"{len(document_content)} characters")
+        info_table.add_row("Estimated input tokens", f"{input_tokens:,}")
+        info_table.add_row("Critic models", ", ".join([c["name"] for c in critics_to_use]))
+        info_table.add_row("Critique rounds", "1 (single iteration)")
+        
+        console.print(info_table)
+        console.print()
+        
+        # Cost breakdown table
+        cost_table = Table(title="Cost Breakdown", show_header=True, header_style="bold magenta")
+        cost_table.add_column("Component", style="cyan")
+        cost_table.add_column("Model", style="green")
+        cost_table.add_column("Usage", style="yellow")
+        cost_table.add_column("Cost per 1K", style="yellow")
+        cost_table.add_column("Total Cost", style="red", justify="right")
+        
+        # Critic costs (single iteration, per model)
+        for critic in critics_to_use:
+            critic_model = critic["config"].preferred_model
+            
+            input_cost = llm_client.estimate_cost(critic_model, input_tokens)
+            output_cost = llm_client.estimate_cost(critic_model, critic_output_tokens_per_response)
+            critic_cost = input_cost + output_cost
+            
+            cost_table.add_row(
+                "Document Critique",
+                critic_model,
+                f"{input_tokens:,} in + {critic_output_tokens_per_response:,} out",
+                f"${llm_client.estimate_cost(critic_model, 1000):.4f}",
+                f"${critic_cost:.4f}"
+            )
+            
+            total_cost += critic_cost
+        
+        console.print(cost_table)
+        console.print()
+        
+        # Prominent total cost display
+        console.print(Panel.fit(
+            f"[bold green]💰 ESTIMATED TOTAL COST: ${total_cost:.4f}[/bold green]",
+            border_style="green"
+        ))
+        console.print()
+        
+        # Document critique benefits summary
+        console.print(Panel.fit(
+            f"[bold]📄 Document Critique Benefits:[/bold]\n"
+            f"• Direct feedback on existing content\n"
+            f"• No content generation costs - critics only\n"
+            f"• Single iteration for faster results\n"
+            f"• {len(critics_to_use)} expert perspectives\n"
+            f"• Immediate actionable insights",
+            title="Value Proposition",
+            border_style="cyan"
+        ))
+        
+    except Exception as e:
+        console.print(f"[red]Error estimating document critique cost: {e}[/red]")
+        if debug:
+            console.print(f"[dim]Cost estimation error details: {traceback.format_exc()}[/dim]")
+
+
 def main():
-    """Main entry point."""
+    """Main entry point with backward compatibility."""
+    import sys
+    
+    # Check if user is using old command format (no subcommand)
+    # If first argument is not a known subcommand, assume it's the old format
+    if len(sys.argv) > 1 and not sys.argv[1].startswith('-') and sys.argv[1] not in ['critique', 'document']:
+        # Old format: python -m llm_critique.main "prompt" [options]
+        # Insert 'critique' subcommand for backward compatibility
+        sys.argv.insert(1, 'critique')
+        console.print("[dim]💡 Using backward compatibility mode. Consider using 'llm-critique critique' explicitly.[/dim]")
+    
     cli()
 
 def estimate_tokens(text: str) -> int:
     """Estimate token count from text. Rough approximation: ~4 characters per token."""
-    if not text:
-        return 0
-    return max(1, len(text) // 4)
+    return len(text) // 4
+
+def check_resource_limits(content: str, config, context: str = "request") -> None:
+    """Check if request is within resource limits."""
+    from rich.console import Console
+    console = Console()
+    
+    # Check token limits
+    estimated_tokens = estimate_tokens(content)
+    if estimated_tokens > config.max_input_tokens:
+        console.print(f"[red]❌ Error: Content too large ({estimated_tokens:,} tokens). Maximum: {config.max_input_tokens:,} tokens[/red]")
+        console.print(f"[yellow]💡 Tip: Try breaking your content into smaller sections[/yellow]")
+        raise click.Abort()
+    
+    # Check file size limits for document mode  
+    if hasattr(config, 'max_file_size_mb'):
+        max_size_bytes = config.max_file_size_mb * 1024 * 1024
+        content_size = len(content.encode('utf-8'))
+        if content_size > max_size_bytes:
+            size_mb = content_size / (1024 * 1024)
+            console.print(f"[red]❌ Error: Content too large ({size_mb:.1f}MB). Maximum: {config.max_file_size_mb}MB[/red]")
+            raise click.Abort()
+
+def estimate_request_cost(input_tokens: int, output_tokens: int, model: str = "gpt-4o") -> float:
+    """Estimate cost for a request."""
+    # Simplified cost estimation - in production this would use a cost matrix
+    cost_per_1k_input = 0.0025  # Default for GPT-4o
+    cost_per_1k_output = 0.01   # Default for GPT-4o
+    
+    # Model-specific pricing (simplified)
+    model_costs = {
+        "gpt-4o": (0.0025, 0.01),
+        "gpt-4o-mini": (0.00015, 0.0006),
+        "claude-3-sonnet": (0.003, 0.015),
+        "claude-3-haiku": (0.00025, 0.00125),
+        "gemini-pro": (0.001, 0.002),
+    }
+    
+    if model in model_costs:
+        cost_per_1k_input, cost_per_1k_output = model_costs[model]
+    
+    input_cost = (input_tokens / 1000) * cost_per_1k_input
+    output_cost = (output_tokens / 1000) * cost_per_1k_output
+    
+    return input_cost + output_cost
+
+def check_cost_limits(estimated_cost: float, config, context: str = "request") -> None:
+    """Check if estimated cost is within limits."""
+    from rich.console import Console
+    console = Console()
+    
+    if estimated_cost > config.max_cost_per_request:
+        console.print(f"[red]❌ Error: Estimated cost (${estimated_cost:.4f}) exceeds limit (${config.max_cost_per_request:.2f})[/red]")
+        console.print(f"[yellow]💡 Tips to reduce cost:[/yellow]")
+        console.print("  • Use smaller/cheaper models (gpt-4o-mini, claude-3-haiku)")
+        console.print("  • Reduce content length")
+        console.print("  • Use fewer critic personas")
+        raise click.Abort()
 
 def estimate_workflow_cost(prompt: Optional[str], file: Optional[str], creator_model: Optional[str], 
                           critique_models: Optional[str], iterations: int, config_obj, debug: bool) -> None:
