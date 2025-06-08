@@ -97,6 +97,13 @@ class Config(BaseSettings):
         description="Health check timeout in seconds",
         env="LLM_CRITIQUE_HEALTH_TIMEOUT"
     )
+    
+    # Synthesis Configuration
+    confidence_threshold: float = Field(
+        default=0.8,
+        description="Confidence threshold for consensus",
+        env="LLM_CRITIQUE_CONFIDENCE_THRESHOLD"
+    )
 
     @validator('default_models', pre=True)
     def parse_default_models(cls, v):
