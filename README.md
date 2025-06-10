@@ -426,6 +426,27 @@ The tool automatically sets secure file permissions:
 - Conversation files: `600` (owner read/write only)
 - Config directory: `755` (standard directory permissions)
 
+## 🧪 Testing & Validation
+
+### Persona Validation
+To ensure all expert personas are properly configured and can load without errors:
+
+```bash
+# Test all personas for YAML syntax and structure
+pytest tests/test_personas.py -k "production_personas" -v
+
+# Run full persona test suite
+pytest tests/test_personas.py -v
+```
+
+This validation test catches:
+- YAML syntax errors (missing line breaks, malformed lists)
+- Missing required fields
+- Invalid data types
+- File encoding issues
+
+**For CI/CD**: Include `pytest tests/test_personas.py -k "production_personas"` in your pipeline to ensure persona integrity.
+
 ---
 
 **Made with ❤️ for the AI community** 

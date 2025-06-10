@@ -187,6 +187,102 @@ class TestUnifiedPersonaManager:
         assert result["valid"] is False
         assert len(result["errors"]) > 0
 
+    @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-key'})
+    def test_all_production_personas_load_successfully(self):
+        """
+        Critical test: Ensure all production persona YAML files are valid and load without errors.
+        
+        This test catches YAML syntax errors, missing required fields, and other configuration 
+        issues that would break the personas in production. It should be run as part of CI/CD
+        to ensure persona integrity.
+        
+        Common issues this test catches:
+        - YAML syntax errors (e.g., missing line breaks in lists: "- item1    - item2")
+        - Missing required fields (name, description, core_principles, etc.)
+        - Invalid data types (lists that should be dicts, etc.)
+        - File encoding issues
+        - Malformed YAML structure
+        
+        To run this test specifically:
+        pytest tests/test_personas.py::TestUnifiedPersonaManager::test_all_production_personas_load_successfully -v
+        
+        Or as part of CI/CD pipeline:
+        pytest tests/test_personas.py -k "production_personas"
+        """
+        # Use the default personas directory (production personas)
+        manager = UnifiedPersonaManager()
+        
+        # Get all discovered persona names (excluding template)
+        discovered_personas = list(manager._expert_persona_cache.keys())
+        production_personas = [p for p in discovered_personas if p != 'persona_template']
+        
+        # Track results
+        successful_loads = []
+        failed_loads = []
+        yaml_syntax_errors = []
+        
+        # Test each persona
+        for persona_name in production_personas:
+            try:
+                # Attempt to load the persona
+                persona = manager.load_expert_persona(persona_name)
+                
+                # Validate structure
+                assert persona.name, f"Persona {persona_name} missing name"
+                assert persona.persona_type == PersonaType.EXPERT, f"Persona {persona_name} wrong type"
+                assert persona.description, f"Persona {persona_name} missing description"
+                assert len(persona.core_principles) > 0, f"Persona {persona_name} missing core principles"
+                assert len(persona.key_questions) > 0, f"Persona {persona_name} missing key questions"
+                
+                # Validate YAML structure integrity
+                assert isinstance(persona.core_principles, list), f"Persona {persona_name} core_principles not a list"
+                assert isinstance(persona.key_questions, list), f"Persona {persona_name} key_questions not a list"
+                assert isinstance(persona.red_flags, list), f"Persona {persona_name} red_flags not a list"
+                assert isinstance(persona.success_indicators, list), f"Persona {persona_name} success_indicators not a list"
+                assert isinstance(persona.expertise_domains, list), f"Persona {persona_name} expertise_domains not a list"
+                assert isinstance(persona.language_patterns, dict), f"Persona {persona_name} language_patterns not a dict"
+                assert isinstance(persona.critique_style, dict), f"Persona {persona_name} critique_style not a dict"
+                
+                successful_loads.append(persona_name)
+                
+            except Exception as e:
+                error_msg = str(e)
+                failed_loads.append((persona_name, error_msg))
+                
+                # Specifically track YAML syntax errors
+                if "sequence entries are not allowed here" in error_msg:
+                    yaml_syntax_errors.append((persona_name, error_msg))
+        
+        # Generate detailed failure report
+        if failed_loads:
+            failure_report = "\n".join([
+                f"❌ {name}: {error[:100]}{'...' if len(error) > 100 else ''}" 
+                for name, error in failed_loads
+            ])
+            
+            yaml_error_report = ""
+            if yaml_syntax_errors:
+                yaml_error_report = "\n\nYAML Syntax Errors (likely missing line breaks in lists):\n" + "\n".join([
+                    f"  • {name}: {error}" 
+                    for name, error in yaml_syntax_errors
+                ])
+            
+            pytest.fail(
+                f"Persona loading failures detected!\n\n"
+                f"✅ Successfully loaded: {len(successful_loads)}\n"
+                f"❌ Failed to load: {len(failed_loads)}\n\n"
+                f"Failed personas:\n{failure_report}"
+                f"{yaml_error_report}\n\n"
+                f"All personas must load successfully for production use."
+            )
+        
+        # Success case - log what we validated
+        print(f"\n✅ All {len(successful_loads)} production personas loaded successfully!")
+        print(f"Validated personas: {', '.join(sorted(successful_loads))}")
+        
+        # Ensure we're actually testing a reasonable number of personas
+        assert len(successful_loads) >= 10, f"Expected at least 10 personas, only found {len(successful_loads)}"
+
 
 class TestUnifiedCritic:
     """Test UnifiedCritic functionality."""
