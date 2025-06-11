@@ -719,7 +719,7 @@ class DocumentReader:
                 raise
             raise RuntimeError(f"Error reading file '{file_path}': {e}")
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option('--debug', is_flag=True, help='Enable debug logging')
 @click.option('--config', help='Custom config file path')
 @click.option('--list-models', is_flag=True, help='List all supported models and exit')
@@ -785,6 +785,10 @@ def cli(ctx, debug: bool, config: Optional[str], list_models: bool, list_persona
         config_obj = load_config(config)
         display_persona_info(persona_info, config_obj)
         ctx.exit()
+    
+    # If no subcommand was invoked and no global flags were used, show help
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @cli.command()
@@ -1827,8 +1831,13 @@ def main():
     import sys
     
     # Check if user is using old command format (no subcommand)
-    # If first argument is not a known subcommand, assume it's the old format
-    if len(sys.argv) > 1 and not sys.argv[1].startswith('-') and sys.argv[1] not in ['critique', 'document']:
+    # If first argument is not a known subcommand AND not a global flag, assume it's the old format
+    global_flags = ['--list-models', '--list-personas', '--persona-info', '--help', '--version', '--debug', '--config']
+    
+    if (len(sys.argv) > 1 and 
+        not sys.argv[1].startswith('-') and 
+        sys.argv[1] not in ['critique', 'document'] and
+        not any(flag in sys.argv for flag in global_flags)):
         # Old format: python -m llm_critique.main "prompt" [options]
         # Insert 'critique' subcommand for backward compatibility
         sys.argv.insert(1, 'critique')
