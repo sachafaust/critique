@@ -1003,20 +1003,14 @@ Provide an improved response that:
         
         for i, persona_config in enumerate(persona_configs):
             try:
-                # Get the LLM for this persona
-                llm = self.llm_client.get_model(persona_config.preferred_model)
+                # Use UnifiedCritic for proper debug logging and structured critique
+                from .personas import UnifiedCritic
+                critic = UnifiedCritic(persona_config, self.llm_client)
                 
-                # Generate document critique prompt
-                critique_prompt = self._generate_document_critique_prompt(
-                    document_content, document_path, persona_config
-                )
-                
-                # Execute critique
-                response = await llm.ainvoke(critique_prompt)
-                
-                # Parse critique response
-                critique = self._parse_persona_critique_response(
-                    response.content, persona_config, document_content
+                # Execute critique using UnifiedCritic (includes debug logging)
+                critique = await critic.execute_critique(
+                    content=document_content,
+                    context=f"Document critique: {document_path}"
                 )
                 
                 persona_critiques.append(critique)

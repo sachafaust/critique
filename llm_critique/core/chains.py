@@ -281,9 +281,23 @@ Instructions: Please create an improved version that addresses the feedback whil
                     {"role": "user", "content": user_content}
                 ]
             
+            # Debug logging: Show exact prompt sent to LLM
+            import structlog
+            logger = structlog.get_logger()
+            logger.debug("Creator LLM Request", 
+                        model=getattr(self.model, 'model_name', getattr(self.model, 'model', 'unknown')),
+                        messages=messages,
+                        is_reasoning_model=self.is_reasoning_model)
+            
             # Get model response
             response = await self.model.ainvoke(messages)
             content = response.content.strip()
+            
+            # Debug logging: Show LLM response
+            logger.debug("Creator LLM Response",
+                        model=getattr(self.model, 'model_name', getattr(self.model, 'model', 'unknown')),
+                        response_length=len(content),
+                        response_preview=content[:200] + "..." if len(content) > 200 else content)
             
             # Validate and return
             result = self.validator.extract(content)
@@ -394,9 +408,24 @@ Please analyze this content and provide structured feedback in the required JSON
                     {"role": "user", "content": user_content}
                 ]
             
+            # Debug logging: Show exact prompt sent to LLM
+            import structlog
+            logger = structlog.get_logger()
+            logger.debug("Critic LLM Request",
+                        model=self.model_name,
+                        messages=messages,
+                        is_reasoning_model=self.is_reasoning_model,
+                        iteration=iteration)
+            
             # Get model response
             response = await self.model.ainvoke(messages)
             content_response = response.content.strip()
+            
+            # Debug logging: Show LLM response
+            logger.debug("Critic LLM Response",
+                        model=self.model_name,
+                        response_length=len(content_response),
+                        response_preview=content_response[:200] + "..." if len(content_response) > 200 else content_response)
             
             # Clean the response content
             start = content_response.find('{')

@@ -570,7 +570,11 @@ You are providing a professional critique and analysis of the following content.
         """Execute critique using the persona configuration."""
         import time
         import re
+        import structlog
         from .models import LLMClient
+        
+        # Initialize logger at the beginning so it's available in exception handler
+        logger = structlog.get_logger()
         
         if not self.llm_client:
             raise ValueError("LLM client not provided to critic")
@@ -589,9 +593,24 @@ You are providing a professional critique and analysis of the following content.
                 {"role": "user", "content": prompt}
             ]
             
+            # Debug logging: Show exact prompt sent to LLM
+            logger.debug("Persona LLM Request",
+                        persona_name=self.persona.name,
+                        persona_type=self.persona.persona_type.value,
+                        model=self.model,
+                        messages=messages,
+                        prompt_length=len(prompt))
+            
             # Execute critique using the LangChain model
             response = await model.ainvoke(messages)
             response_text = response.content.strip()
+            
+            # Debug logging: Show LLM response
+            logger.debug("Persona LLM Response",
+                        persona_name=self.persona.name,
+                        model=self.model,
+                        response_length=len(response_text),
+                        response_preview=response_text[:200] + "..." if len(response_text) > 200 else response_text)
             
             execution_time = (time.time() - start_time) * 1000  # Convert to ms
             
