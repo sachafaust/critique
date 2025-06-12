@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 from rich.console import Console
 from rich.logging import RichHandler
+import logging
 
 
 class SecurityFilter:
@@ -132,36 +133,46 @@ def setup_logging(
 ) -> structlog.BoundLogger:
     """Setup structured logging for both humans and machines with security controls."""
     
-    # Create log directory if it doesn't exist
+    # Set up log file and permissions
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
-    
-    # Set secure directory permissions (755 = rwxr-xr-x)
     os.chmod(log_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-    
-    # Generate timestamp for log file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_path / f"{timestamp}_critique.json"
-    
-    # Configure structlog with security filter
+    log_file.touch()
+    os.chmod(log_file, stat.S_IRUSR | stat.S_IWUSR)  # 600 = rw-------
+
+    # Create a named logger
+    py_logger = logging.getLogger('llm_critique')
+    py_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    py_logger.handlers = []  # Remove any existing handlers
+
+    # File handler for JSON logs
+    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    file_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+    file_handler.setFormatter(logging.Formatter('%(message)s'))
+    py_logger.addHandler(file_handler)
+
+    # Stream handler for console logs
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+    stream_handler.setFormatter(logging.Formatter('%(message)s'))
+    py_logger.addHandler(stream_handler)
+
+    # Configure structlog to use this logger
     security_filter = SecurityFilter()
-    
-    # Choose processors based on level and format
-    processors = [security_filter]  # Security filter always first
-    
+    processors = [security_filter]
     if level.upper() == "DEBUG":
-        # For debug mode, add console renderer for better UX
         processors.extend([
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.stdlib.add_log_level,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
-            DebugConsoleRenderer(),  # Custom debug renderer for console
-            structlog.processors.JSONRenderer()  # JSON renderer for file logging
+            DebugConsoleRenderer(),  # For console
+            structlog.processors.JSONRenderer()  # For file
         ])
     else:
-        # Standard processors for non-debug
         processors.extend([
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.stdlib.add_log_level,
@@ -170,38 +181,26 @@ def setup_logging(
             structlog.processors.UnicodeDecoder(),
             structlog.processors.JSONRenderer()
         ])
-    
+
     structlog.configure(
         processors=processors,
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
-    
-    # Create file with restrictive permissions
-    log_file.touch()
-    os.chmod(log_file, stat.S_IRUSR | stat.S_IWUSR)  # 600 = rw-------
-    
-    # Create logger
-    logger = structlog.get_logger()
-    
-    # Add trace ID if provided (only for non-debug mode)
-    if trace_id and level.upper() != "DEBUG":
-        logger = logger.bind(trace_id=trace_id)
-    
-    # Add component identifier (only for non-debug mode)
-    if level.upper() != "DEBUG":
-        logger = logger.bind(component="multi_llm")
-    
-    # Log security notice (only in debug mode to avoid noise)
+
+    # Print debug initialization message
     if level.upper() == "DEBUG":
-        # Use print for debug mode initialization message
         from rich.console import Console
         console = Console()
         console.print(f"[dim]🔧 Debug logging initialized: {log_file}[/dim]")
-    
-    return logger
+
+    # TEST: Write a log entry to verify file output
+    test_logger = structlog.get_logger('llm_critique')
+    test_logger.info('log_file_test', test_message='Log file should contain this entry')
+
+    return structlog.get_logger('llm_critique')
 
 
 def log_execution(

@@ -20,23 +20,20 @@ critique_style:
   depth_level: "Deep technical understanding with business impact awareness"
 
 key_questions:
-  people_and_relationships:
-    - "What scares you the most about our current security posture?"
-    - "What are you most worried about in your domain?"
-    - "Who are the true influencers in your team that you listen to?"
-    - "Who else should I talk to to understand the real situation?"
-    - "What's the culture of security awareness here?"
-    - "How would you describe our current security posture?"
-  strategic_approach:
-    - "What is the actual business risk and impact here?"
-    - "What larger initiative should we be building toward?"
-    - "How can we integrate security seamlessly into the development workflow?"
-    - "Is this security control proportional to the risk?"
-  technical_and_process:
-    - "What are the most likely attack vectors and exploitation paths?"
-    - "Can this security measure be automated and scaled?"
-    - "How does this affect developer productivity and velocity?"
-    - "What is the threat model and who are we defending against?"
+  - "What scares you the most about our current security posture?"
+  - "What are you most worried about in your domain?"
+  - "Who are the true influencers in your team that you listen to?"
+  - "Who else should I talk to to understand the real situation?"
+  - "What's the culture of security awareness here?"
+  - "How would you describe our current security posture?"
+  - "What is the actual business risk and impact here?"
+  - "What larger initiative should we be building toward?"
+  - "How can we integrate security seamlessly into the development workflow?"
+  - "Is this security control proportional to the risk?"
+  - "What are the most likely attack vectors and exploitation paths?"
+  - "Can this security measure be automated and scaled?"
+  - "How does this affect developer productivity and velocity?"
+  - "What is the threat model and who are we defending against?"
 
 decision_frameworks:
   - "Threat modeling and risk assessment methodology"
