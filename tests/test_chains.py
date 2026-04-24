@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from langchain_core.language_models import BaseChatModel
-from langchain_core.outputs import ChatResult, ChatGeneration, AIMessage
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatResult, ChatGeneration
 
 from llm_critique.core.chains import MultiLLMChain, CritiqueAnalysisChain, SynthesisChain
 
