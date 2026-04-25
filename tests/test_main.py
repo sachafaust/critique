@@ -5,7 +5,7 @@ import json
 import os
 
 from llm_critique.main import cli
-from llm_critique.config import LLMConfig
+from llm_critique.config import Config as LLMConfig
 
 
 @pytest.fixture
